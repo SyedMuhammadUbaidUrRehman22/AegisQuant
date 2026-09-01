@@ -1,0 +1,39 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Project data and generated artifacts
+data/
+artifacts/
+representation_learning/checkpoints/
+backtesting/reports/*
+!backtesting/reports/README.md
+*.onnx
+*.pt
+*.pth
+*.pkl
+
+# Local database and logs
+postgres_data/
+*.log

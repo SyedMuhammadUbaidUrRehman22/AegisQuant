@@ -1,0 +1,53 @@
+name: ${COMPOSE_PROJECT_NAME:-aegisquant}
+
+services:
+  database:
+    image: timescale/timescaledb:2.18.0-pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegisquant}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisquant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  health-service:
+    build:
+      context: .
+      dockerfile: infra/docker/health-service.Dockerfile
+    environment:
+      AEGISQUANT_ENV: ${AEGISQUANT_ENV:-dev}
+      AEGISQUANT_DATABASE_HOST: database
+      AEGISQUANT_DATABASE_PORT: 5432
+      AEGISQUANT_DATABASE_NAME: ${POSTGRES_DB:-aegisquant}
+      AEGISQUANT_DATABASE_USER: ${POSTGRES_USER:-aegisquant}
+      AEGISQUANT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
