@@ -6,6 +6,7 @@ import json
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -24,8 +25,11 @@ def _fetch_alpha_vantage(symbol: str, api_key: str, timeout_seconds: int) -> dic
             "apikey": api_key,
         }
     )
-    with urlopen(f"{ALPHA_VANTAGE_URL}?{parameters}", timeout=timeout_seconds) as response:
-        payload: object = json.load(response)
+    try:
+        with urlopen(f"{ALPHA_VANTAGE_URL}?{parameters}", timeout=timeout_seconds) as response:
+            payload: object = json.load(response)
+    except (HTTPError, URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(f"Alpha Vantage transport failed: {type(error).__name__}") from None
     if not isinstance(payload, dict):
         raise ValueError("Alpha Vantage response must be an object")
     typed_payload = cast(dict[str, Any], payload)
@@ -66,6 +70,7 @@ def compare_alpha_vantage(
     results: list[dict[str, object]] = []
     total_matches = 0
     total_mismatches = 0
+    insufficient_symbols: list[str] = []
     for symbol in symbols:
         secondary = _fetch_alpha_vantage(symbol, api_key, timeout_seconds)
         canonical = {
@@ -73,6 +78,8 @@ def compare_alpha_vantage(
             for row in repository.bars_for_symbol(symbol, start_date, end_date)
         }
         overlap = sorted(set(canonical).intersection(secondary))[-5:]
+        if len(overlap) < 5:
+            insufficient_symbols.append(symbol)
         comparisons: list[dict[str, object]] = []
         for session in overlap:
             yahoo_close = canonical[session]
@@ -104,5 +111,7 @@ def compare_alpha_vantage(
         "relative_tolerance": str(relative_tolerance),
         "matches": total_matches,
         "mismatches": total_mismatches,
+        "insufficient_symbols": insufficient_symbols,
+        "passed": total_mismatches == 0 and not insufficient_symbols,
         "symbols": results,
     }

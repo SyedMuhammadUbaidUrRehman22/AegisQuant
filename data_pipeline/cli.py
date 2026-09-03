@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(comparison_result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         print(json.dumps(comparison_result, indent=2, sort_keys=True))
-        return 0 if comparison_result["mismatches"] == 0 else 1
+        return 0 if comparison_result["passed"] is True else 1
 
     repository.seed_instruments(STAGE_1_UNIVERSE)
     settings = load_settings()

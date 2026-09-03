@@ -182,6 +182,7 @@ class CorporateAction(BaseModel):
     action_value: Decimal
     currency: str | None
     source_name: str
+    active: bool = True
 
 
 class QualityIssue(BaseModel):

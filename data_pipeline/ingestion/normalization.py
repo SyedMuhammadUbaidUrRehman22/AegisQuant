@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
@@ -167,7 +166,7 @@ def normalize_source_batch(
                 if value is None or value == "":
                     continue
                 parsed_action = _parse_decimal(value, field=source_column)
-                if math.isclose(float(parsed_action), 0.0, abs_tol=0.0):
+                if parsed_action == 0:
                     continue
                 if parsed_action < 0:
                     raise ValueError(f"{source_column} is negative")

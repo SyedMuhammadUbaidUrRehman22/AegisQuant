@@ -38,11 +38,15 @@ def test_explicit_environment_values_override_yaml() -> None:
             "AEGISQUANT_APP_PORT": "9000",
             "AEGISQUANT_DATABASE_HOST": "database",
             "AEGISQUANT_DATABASE_PASSWORD": "p@ss:word",
+            "AEGISQUANT_RAW_DATA_DIR": "var/provider-snapshots",
+            "AEGISQUANT_INGESTION_MAX_ATTEMPTS": "4",
         },
     )
 
     assert settings.app.port == 9000
     assert settings.database.host == "database"
+    assert settings.data_pipeline.raw_data_dir == Path("var/provider-snapshots")
+    assert settings.data_pipeline.max_attempts == 4
     url = make_url(settings.database.sqlalchemy_url())
     assert url.password == "p@ss:word"
     assert url.query["connect_timeout"] == "5"

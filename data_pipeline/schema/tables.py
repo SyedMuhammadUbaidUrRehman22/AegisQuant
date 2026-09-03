@@ -114,7 +114,7 @@ ingestion_runs = Table(
     Column("calendar_library_version", String(32), nullable=False),
     Column("contract_version", SmallInteger, nullable=False),
     Column("python_version", String(32), nullable=False),
-    Column("git_commit", String(40), nullable=False),
+    Column("code_version", String(96), nullable=False),
     Column("git_dirty", Boolean, nullable=False),
     Column("request_parameters", JSONB, nullable=False),
     Column("error_type", String(128), nullable=True),
@@ -188,6 +188,7 @@ corporate_actions = Table(
     Column("action_value", Numeric(30, 10), nullable=False),
     Column("currency", String(3), nullable=True),
     Column("source_name", String(32), nullable=False),
+    Column("active", Boolean, nullable=False, server_default=text("true")),
     Column(
         "ingestion_run_id",
         Uuid(as_uuid=True),

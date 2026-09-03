@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from importlib.metadata import version
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from data_pipeline.ingestion.calendars import SessionCalendar
@@ -38,12 +40,29 @@ def _safe_error_message(error: BaseException) -> str:
     return _SECRET_PATTERN.sub(r"\1\2[REDACTED]", str(error))[:4000]
 
 
-def _git_state() -> tuple[str, bool]:
-    """Return repository revision and dirty state without making Git a runtime dependency."""
+def _source_digest() -> str:
+    """Hash checked-in runtime sources when repository metadata is unavailable."""
+
+    root = Path(__file__).resolve().parents[2]
+    candidates = [root / "pyproject.toml", root / "constraints.lock", root / "alembic.ini"]
+    for directory in ("config", "data_pipeline", "infra", "services"):
+        candidates.extend((root / directory).rglob("*.py"))
+        candidates.extend((root / directory).rglob("*.yaml"))
+    digest = hashlib.sha256()
+    for path in sorted({item for item in candidates if item.is_file()}):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _code_state() -> tuple[str, bool]:
+    """Return a Git revision or deterministic runtime-source digest and dirty state."""
 
     try:
         revision = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", "-c", "safe.directory=*", "rev-parse", "HEAD"],
             check=True,
             capture_output=True,
             text=True,
@@ -51,7 +70,7 @@ def _git_state() -> tuple[str, bool]:
         ).stdout.strip()
         dirty = bool(
             subprocess.run(
-                ["git", "status", "--porcelain"],
+                ["git", "-c", "safe.directory=*", "status", "--porcelain"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -59,8 +78,10 @@ def _git_state() -> tuple[str, bool]:
             ).stdout.strip()
         )
     except (OSError, subprocess.SubprocessError):
-        return "0" * 40, True
-    return revision[:40].ljust(40, "0"), dirty
+        return f"source-sha256:{_source_digest()}", True
+    if dirty:
+        return f"source-sha256:{_source_digest()}", True
+    return f"git:{revision[:40]}", False
 
 
 class IngestionService:
@@ -121,7 +142,7 @@ class IngestionService:
         now = (as_of or datetime.now(UTC)).astimezone(UTC)
         instrument = self._repository.get_instrument(request.canonical_symbol)
         calendar = SessionCalendar(instrument.calendar_code)
-        git_commit, git_dirty = _git_state()
+        code_version, git_dirty = _code_state()
         request_parameters: dict[str, object] = {
             "canonical_symbol": request.canonical_symbol,
             "source_symbol": instrument.source_symbol,
@@ -148,7 +169,7 @@ class IngestionService:
             provider_library_version=self._provider.library_version,
             calendar_library_version=version("exchange-calendars"),
             python_version=sys.version.split()[0],
-            git_commit=git_commit,
+            code_version=code_version,
             git_dirty=git_dirty,
             request_parameters=request_parameters,
         )

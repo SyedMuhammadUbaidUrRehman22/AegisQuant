@@ -112,13 +112,10 @@ class YahooFinanceProvider:
         materialized = frame.copy()
         materialized.index.name = "timestamp"
         materialized = materialized.reset_index()
-        for column in YAHOO_COLUMNS:
-            if column not in materialized.columns:
-                materialized[column] = None
-        materialized = materialized.loc[:, list(YAHOO_COLUMNS)]
+        columns = tuple(str(column) for column in materialized.columns)
 
         rows = tuple(
-            {column: _stringify(row[column]) for column in YAHOO_COLUMNS}
+            {column: _stringify(row[column]) for column in columns}
             for _, row in materialized.iterrows()
         )
         metadata: Mapping[str, str] = {
@@ -136,7 +133,7 @@ class YahooFinanceProvider:
             requested_start=request.start_date,
             requested_end=request.end_date,
             fetched_at=datetime.now(UTC),
-            columns=YAHOO_COLUMNS,
+            columns=columns,
             rows=rows,
             metadata=dict(metadata),
         )

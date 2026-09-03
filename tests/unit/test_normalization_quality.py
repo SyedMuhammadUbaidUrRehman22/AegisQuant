@@ -95,3 +95,30 @@ def test_invalid_ohlc_and_noninteger_volume_are_critical() -> None:
     validated = _validate(rows)
 
     assert validated.report.critical_count >= 2  # type: ignore[attr-defined]
+
+
+def test_missing_required_column_is_critical() -> None:
+    row = source_row(date(2024, 1, 2))
+    row.pop("Adj Close")
+    batch = source_batch((row,), end=date(2024, 1, 3))
+
+    normalized = normalize_source_batch(batch, instrument(), SessionCalendar("XNYS"))
+
+    assert normalized.bars == ()
+    assert normalized.issues[0].code == "missing_columns"
+
+
+def test_null_nan_and_infinite_values_do_not_reach_canonical_bars() -> None:
+    rows = (
+        source_row(date(2024, 1, 2), open_price="NaN"),
+        source_row(date(2024, 1, 3), close="Infinity"),
+        source_row(date(2024, 1, 4), volume=""),
+    )
+
+    normalized = normalize_source_batch(source_batch(rows), instrument(), SessionCalendar("XNYS"))
+
+    assert normalized.bars == ()
+    assert (
+        len([issue for issue in normalized.issues if issue.severity is QualitySeverity.CRITICAL])
+        == 3
+    )

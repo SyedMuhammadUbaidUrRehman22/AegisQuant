@@ -31,8 +31,9 @@ resolving to multiple instruments and prevents multiple mappings for one instrum
 
 One durable audit record per instrument attempt. It contains a batch correlation UUID, requested and
 actual date bounds, status, row counts, warning/critical counts, snapshot path and SHA-256,
-normalized-data SHA-256, adapter/library/calendar/contract/Python versions, Git revision and dirty
-state, explicit request semantics, bounded failure details, and timestamps. Database URLs and
+normalized-data SHA-256, adapter/library/calendar/contract/Python versions, a Git revision (or
+deterministic runtime-source SHA-256 when `.git` is unavailable), dirty state, explicit request
+semantics, bounded failure details, and timestamps. Database URLs and
 credentials are never recorded. A multi-symbol command deliberately has independent run records and
 transactions so one failed symbol cannot corrupt successful peers.
 
@@ -65,7 +66,8 @@ for audit. Identical replays and overlapping ranges preserve canonical values an
 Positive dividends, stock-split ratios, and capital-gain distributions keyed by instrument,
 effective date, and action type. Splits have no currency; cash events use instrument currency. The
 row references the run/snapshot that produced its current value and follows the same idempotent
-insert/update/no-op behavior.
+insert/update/no-op behavior. A provider correction that removes an action marks it inactive and
+retains the row as an auditable tombstone.
 
 ## Quality policy
 

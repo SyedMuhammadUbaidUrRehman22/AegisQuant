@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from data_pipeline.ingestion.calendars import SessionCalendar
+from data_pipeline.ingestion.normalization import normalize_source_batch
 from data_pipeline.ingestion.provider import YahooFinanceProvider
 from data_pipeline.schema import IngestionRequest
 from tests.factories import instrument
@@ -57,4 +59,6 @@ def test_yahoo_adapter_sets_every_semantic_parameter(monkeypatch: Any) -> None:
         "raise_errors": True,
     }
     assert batch.rows[0]["timestamp"] == "2024-01-02T00:00:00-05:00"
-    assert batch.rows[0]["Capital Gains"] is None
+    assert "Capital Gains" not in batch.rows[0]
+    normalized = normalize_source_batch(batch, instrument(), SessionCalendar("XNYS"))
+    assert "precision_rounded" not in {issue.code for issue in normalized.issues}

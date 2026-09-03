@@ -11,6 +11,7 @@ RUN addgroup --system aegisquant \
 
 COPY . .
 RUN python -m pip install --no-cache-dir --constraint constraints.lock . \
+    && mkdir -p /app/data \
     && chown -R aegisquant:aegisquant /app
 
 USER aegisquant

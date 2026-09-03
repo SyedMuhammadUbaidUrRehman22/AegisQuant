@@ -160,7 +160,8 @@ python -m data_pipeline inspect
 Replace the example end date as needed. It is always exclusive; omitting it safely requests through
 the prior civil day. Each instrument has an independent audit record and transaction. Provider
 responses are stored as immutable, checksum-verified snapshots under `data/raw/`, and batch quality
-reports are written under `data/reports/`; both directories are deliberately ignored by Git.
+reports are written under `data/reports/`; both directories are deliberately ignored by Git. Compose
+persists `/app/data` in its `market_data` named volume, while host CLI runs use the local directory.
 
 For the optional five-symbol secondary-source check, set `ALPHAVANTAGE_API_KEY` and run:
 

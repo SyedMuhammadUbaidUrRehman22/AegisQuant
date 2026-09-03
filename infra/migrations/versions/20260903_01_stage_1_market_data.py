@@ -126,7 +126,7 @@ def upgrade() -> None:
         sa.Column("calendar_library_version", sa.String(length=32), nullable=False),
         sa.Column("contract_version", sa.SmallInteger(), nullable=False),
         sa.Column("python_version", sa.String(length=32), nullable=False),
-        sa.Column("git_commit", sa.String(length=40), nullable=False),
+        sa.Column("code_version", sa.String(length=96), nullable=False),
         sa.Column("git_dirty", sa.Boolean(), nullable=False),
         sa.Column("request_parameters", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("error_type", sa.String(length=128), nullable=True),
@@ -260,6 +260,7 @@ def upgrade() -> None:
         sa.Column("action_value", sa.Numeric(precision=30, scale=10), nullable=False),
         sa.Column("currency", sa.String(length=3), nullable=True),
         sa.Column("source_name", sa.String(length=32), nullable=False),
+        sa.Column("active", sa.Boolean(), server_default=sa.text("true"), nullable=False),
         sa.Column("ingestion_run_id", sa.Uuid(), nullable=False),
         sa.Column(
             "created_at",

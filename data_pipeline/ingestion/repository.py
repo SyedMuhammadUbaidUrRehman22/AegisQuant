@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import Engine, RowMapping, func, insert, select, text, tuple_, update
+from sqlalchemy import Engine, RowMapping, func, insert, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -45,7 +45,7 @@ BAR_VALUE_COLUMNS = (
     "contract_version",
     "quality_flags",
 )
-ACTION_VALUE_COLUMNS = ("action_value", "currency", "source_name")
+ACTION_VALUE_COLUMNS = ("action_value", "currency", "source_name", "active")
 
 
 class MarketDataRepository:
@@ -84,8 +84,39 @@ class MarketDataRepository:
                         "active": instrument_statement.excluded.active,
                         "updated_at": func.now(),
                     },
+                    where=or_(
+                        instruments.c.name.is_distinct_from(instrument_statement.excluded.name),
+                        instruments.c.asset_class.is_distinct_from(
+                            instrument_statement.excluded.asset_class
+                        ),
+                        instruments.c.currency.is_distinct_from(
+                            instrument_statement.excluded.currency
+                        ),
+                        instruments.c.timezone.is_distinct_from(
+                            instrument_statement.excluded.timezone
+                        ),
+                        instruments.c.calendar_code.is_distinct_from(
+                            instrument_statement.excluded.calendar_code
+                        ),
+                        instruments.c.valid_from.is_distinct_from(
+                            instrument_statement.excluded.valid_from
+                        ),
+                        instruments.c.valid_to.is_distinct_from(
+                            instrument_statement.excluded.valid_to
+                        ),
+                        instruments.c.active.is_distinct_from(instrument_statement.excluded.active),
+                    ),
                 ).returning(instruments.c.instrument_id)
-                instrument_id = connection.execute(upsert_statement).scalar_one()
+                instrument_id = connection.execute(upsert_statement).scalar_one_or_none()
+                if instrument_id is None:
+                    instrument_id = connection.scalar(
+                        select(instruments.c.instrument_id).where(
+                            instruments.c.canonical_symbol == seed.canonical_symbol,
+                            instruments.c.venue_mic == seed.venue_mic,
+                        )
+                    )
+                if instrument_id is None:
+                    raise RuntimeError("Instrument upsert did not resolve an identity")
                 source_statement = pg_insert(instrument_source_symbols).values(
                     instrument_id=instrument_id,
                     source_name=seed.source_name,
@@ -95,6 +126,9 @@ class MarketDataRepository:
                     source_statement.on_conflict_do_update(
                         constraint="uq_instrument_source_symbols_instrument_id_source_name",
                         set_={"source_symbol": source_statement.excluded.source_symbol},
+                        where=instrument_source_symbols.c.source_symbol.is_distinct_from(
+                            source_statement.excluded.source_symbol
+                        ),
                     )
                 )
         return tuple(self.get_instrument(seed.canonical_symbol) for seed in seeds)
@@ -104,7 +138,17 @@ class MarketDataRepository:
 
         statement = (
             select(
-                instruments,
+                instruments.c.instrument_id,
+                instruments.c.canonical_symbol,
+                instruments.c.name,
+                instruments.c.asset_class,
+                instruments.c.venue_mic,
+                instruments.c.currency,
+                instruments.c.timezone,
+                instruments.c.calendar_code,
+                instruments.c.valid_from,
+                instruments.c.valid_to,
+                instruments.c.active,
                 instrument_source_symbols.c.source_name,
                 instrument_source_symbols.c.source_symbol,
             )
@@ -155,7 +199,7 @@ class MarketDataRepository:
         provider_library_version: str,
         calendar_library_version: str,
         python_version: str,
-        git_commit: str,
+        code_version: str,
         git_dirty: bool,
         request_parameters: dict[str, object],
     ) -> None:
@@ -179,7 +223,7 @@ class MarketDataRepository:
                     calendar_library_version=calendar_library_version,
                     contract_version=CONTRACT_VERSION,
                     python_version=python_version,
-                    git_commit=git_commit,
+                    code_version=code_version,
                     git_dirty=git_dirty,
                     request_parameters=request_parameters,
                 )
@@ -245,7 +289,12 @@ class MarketDataRepository:
                 )
                 inserted, updated, unchanged = self._persist_bars(connection, run_id, bars)
                 actions_inserted, actions_updated, actions_unchanged = self._persist_actions(
-                    connection, run_id, actions
+                    connection,
+                    run_id,
+                    instrument,
+                    actions,
+                    requested_start=report.requested_start,
+                    requested_end=report.requested_end,
                 )
                 actual_dates = [bar.session_date for bar in bars]
                 connection.execute(
@@ -334,25 +383,28 @@ class MarketDataRepository:
 
     @staticmethod
     def _persist_actions(
-        connection: object, run_id: UUID, actions: Sequence[CorporateAction]
+        connection: object,
+        run_id: UUID,
+        instrument: Instrument,
+        actions: Sequence[CorporateAction],
+        *,
+        requested_start: date,
+        requested_end: date,
     ) -> tuple[int, int, int]:
         from sqlalchemy.engine import Connection
 
         if not isinstance(connection, Connection):
             raise TypeError("connection must be a SQLAlchemy Connection")
-        if not actions:
-            return 0, 0, 0
         keys = [
             (action.instrument_id, action.effective_date, action.action_type.value)
             for action in actions
         ]
         existing_rows = connection.execute(
             select(corporate_actions).where(
-                tuple_(
-                    corporate_actions.c.instrument_id,
-                    corporate_actions.c.effective_date,
-                    corporate_actions.c.action_type,
-                ).in_(keys)
+                corporate_actions.c.instrument_id == instrument.instrument_id,
+                corporate_actions.c.source_name == instrument.source_name,
+                corporate_actions.c.effective_date >= requested_start,
+                corporate_actions.c.effective_date < requested_end,
             )
         ).mappings()
         existing = {
@@ -361,6 +413,7 @@ class MarketDataRepository:
         }
         new_values: list[dict[str, object]] = []
         changed: list[CorporateAction] = []
+        removed: list[RowMapping] = []
         unchanged = 0
         for action in actions:
             values = _action_values(action, run_id)
@@ -372,6 +425,10 @@ class MarketDataRepository:
                 unchanged += 1
             else:
                 changed.append(action)
+        incoming_keys = set(keys)
+        for key, current in existing.items():
+            if key not in incoming_keys and current["active"]:
+                removed.append(current)
         if new_values:
             connection.execute(insert(corporate_actions), new_values)
         for action in changed:
@@ -384,7 +441,17 @@ class MarketDataRepository:
                 )
                 .values(**_action_values(action, run_id), updated_at=func.now())
             )
-        return len(new_values), len(changed), unchanged
+        for current in removed:
+            connection.execute(
+                update(corporate_actions)
+                .where(
+                    corporate_actions.c.instrument_id == current["instrument_id"],
+                    corporate_actions.c.effective_date == current["effective_date"],
+                    corporate_actions.c.action_type == current["action_type"],
+                )
+                .values(active=False, ingestion_run_id=run_id, updated_at=func.now())
+            )
+        return len(new_values), len(changed) + len(removed), unchanged
 
     def latest_session(self, instrument_id: int, interval_code: str = "1d") -> date | None:
         """Return the latest persisted session for incremental range calculation."""
@@ -474,6 +541,7 @@ def _action_values(action: CorporateAction, run_id: UUID) -> dict[str, object]:
         "action_value": action.action_value,
         "currency": action.currency,
         "source_name": action.source_name,
+        "active": action.active,
         "ingestion_run_id": run_id,
     }
 

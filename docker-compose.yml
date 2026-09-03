@@ -35,7 +35,7 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
-      - ./data:/app/data
+      - market_data:/app/data
     depends_on:
       database:
         condition: service_healthy
@@ -53,3 +53,4 @@ services:
 
 volumes:
   postgres_data:
+  market_data:

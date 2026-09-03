@@ -59,7 +59,9 @@ def test_same_and_overlapping_loads_are_idempotent_and_corrections_explicit(
 ) -> None:
     repository = MarketDataRepository(clean_engine)
     repository.seed_instruments(STAGE_1_UNIVERSE)
-    provider = StaticProvider({"SPY": source_batch(_three_rows())})
+    initial_rows = list(_three_rows())
+    initial_rows[0] = source_row(date(2024, 1, 2), dividend="0.50")
+    provider = StaticProvider({"SPY": source_batch(tuple(initial_rows))})
     service = _service(clean_engine, provider, tmp_path)
     request = IngestionRequest(
         canonical_symbol="SPY", start_date=date(2024, 1, 2), end_date=date(2024, 1, 5)
@@ -69,6 +71,21 @@ def test_same_and_overlapping_loads_are_idempotent_and_corrections_explicit(
     original = repository.bars_for_symbol("SPY", date(2024, 1, 2), date(2024, 1, 5))
     second = service.ingest_one(request, as_of=datetime(2024, 1, 6, tzinfo=UTC))
     replayed = repository.bars_for_symbol("SPY", date(2024, 1, 2), date(2024, 1, 5))
+
+    overlap_rows = (
+        _three_rows()[1],
+        _three_rows()[2],
+        source_row(date(2024, 1, 5)),
+    )
+    provider.batches["SPY"] = source_batch(
+        overlap_rows, start=date(2024, 1, 3), end=date(2024, 1, 6)
+    )
+    overlap = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 3), end_date=date(2024, 1, 6)
+        ),
+        as_of=datetime(2024, 1, 7, tzinfo=UTC),
+    )
 
     corrected_rows = list(_three_rows())
     corrected_rows[1] = source_row(
@@ -81,30 +98,40 @@ def test_same_and_overlapping_loads_are_idempotent_and_corrections_explicit(
 
     assert first.persistence is not None and first.persistence.inserted == 3
     assert second.persistence is not None and second.persistence.unchanged == 3
+    assert overlap.persistence is not None
+    assert (overlap.persistence.inserted, overlap.persistence.unchanged) == (1, 2)
     assert [row["updated_at"] for row in original] == [row["updated_at"] for row in replayed]
     assert correction.persistence is not None and correction.persistence.updated == 1
+    assert correction.persistence.actions_updated == 1
     assert "source_correction" in corrected[1]["quality_flags"]
     assert final_replay.persistence is not None and final_replay.persistence.unchanged == 3
     assert repository.integrity_summary()["duplicate_bar_keys"] == 0
+    with clean_engine.connect() as connection:
+        action_active = connection.scalar(text("SELECT active FROM corporate_actions"))
+    assert action_active is False
 
 
 @pytest.mark.database
 def test_failed_quality_transaction_can_retry_without_partial_rows(
-    clean_engine: Engine, tmp_path: Path
+    clean_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = MarketDataRepository(clean_engine)
     repository.seed_instruments(STAGE_1_UNIVERSE)
-    provider = StaticProvider({"SPY": source_batch((_three_rows()[0], _three_rows()[2]))})
+    provider = StaticProvider({"SPY": source_batch(_three_rows())})
     service = _service(clean_engine, provider, tmp_path)
     request = IngestionRequest(
         canonical_symbol="SPY", start_date=date(2024, 1, 2), end_date=date(2024, 1, 5)
     )
 
-    failed = service.ingest_one(request, as_of=datetime(2024, 1, 6, tzinfo=UTC))
+    def fail_after_bars(*args: object, **kwargs: object) -> tuple[int, int, int]:
+        raise RuntimeError("injected transaction failure")
+
+    with monkeypatch.context() as context:
+        context.setattr(MarketDataRepository, "_persist_actions", staticmethod(fail_after_bars))
+        failed = service.ingest_one(request, as_of=datetime(2024, 1, 6, tzinfo=UTC))
     assert failed.status is RunStatus.FAILED
     assert repository.integrity_summary()["bars"] == 0
 
-    provider.batches["SPY"] = source_batch(_three_rows())
     succeeded = service.ingest_one(request, as_of=datetime(2024, 1, 6, tzinfo=UTC))
 
     assert succeeded.status is RunStatus.SUCCEEDED
