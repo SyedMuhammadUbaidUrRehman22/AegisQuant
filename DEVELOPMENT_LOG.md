@@ -767,3 +767,372 @@ Do not begin Stage 1 until this validation closure is reviewed. If the user want
 0 external evidence closed first, authorize a push/remote workflow observation and arrange a clean
 environment timing exercise. Stage 1 planning and implementation remain explicitly out of scope for
 this addendum.
+
+---
+
+## Iteration 2 - Stage 1 Historical Market-Data Pipeline
+
+**Date:** 2026-09-03
+**Status:** Implementation complete; database/container exit validation environment-blocked
+**Stage:** Stage 1 - Data Pipeline / Market Data Ingestion
+
+### Objective
+
+Implement only the blueprint's Stage 1 historical market-data capability: a reproducible Yahoo
+Finance ingestion path for the approved 20-ETF universe, canonical completed-session OHLCV and
+corporate actions, immutable source snapshots, deterministic data quality, TimescaleDB persistence,
+bounded recovery, audit provenance, full/incremental operations, and network-independent tests. Do
+not implement live Binance ingestion or any Stage 2+ feature, model, risk, optimization, execution,
+backtest, agent, or dashboard behavior.
+
+### Authoritative and supporting context reviewed
+
+- Re-read the complete 926-line `docs/AegisQuant_Master_Development_Blueprint.md` and treated it as
+  the architectural authority. Its SHA-256 remained
+  `5502F64B466B672F2C6BBDEE93BE9C0F3A0310D3AAB6A8236EC872FF0DEFD7A2`.
+- Re-read the complete 53-page `docs/aegisquant_literature_review.pdf` using PDF extraction and
+  verified that no page was empty. Its SHA-256 remained
+  `08523FA1BFA223D9987F991A112FDA235633A70A586EE1E35259F790A18C67B3`.
+- Re-read the complete pre-iteration `DEVELOPMENT_LOG.md`, including the Stage 0 implementation and
+  Docker validation closure. Its pre-iteration SHA-256 was
+  `CD4D43333AE1525FAB96F7F055B8E8968A8F687304A2C9760FE392E8212F6E91`.
+- Reviewed the complete Stage 1 planning request supplied through the Codex attachment. Its earlier
+  planning-only/no-modification rule applied to the planning iteration, while the user's later
+  Autonomous Stage 1 Implementation Policy explicitly authorized this implementation iteration.
+- Inspected the repository structure and every Stage 0 file connected to configuration, packaging,
+  Docker, Alembic, CI, tests, the health service, and the existing `data_pipeline` boundary.
+
+### Blueprint requirements addressed
+
+- Stage 1 historical OHLCV ingestion and the blueprint's long-format PostgreSQL/TimescaleDB storage
+  requirement.
+- Versioned data contracts, timestamp/session alignment, repeatable raw-data provenance, null/gap/
+  duplicate checks, idempotent batch ingestion, and the required data dictionary.
+- The 20-instrument liquid ETF universe (inside the blueprint's 20-50 instrument target) and an
+  explicit five-symbol pilot.
+- Unit, integration, rollback, concurrency, idempotency, correction, migration, and quality-test
+  infrastructure.
+- Reproducibility through exact direct dependency pins, a complete transitive constraint lock,
+  immutable source snapshots, normalized hashes, library versions, Python version, request
+  parameters, and a Git-or-source-tree code identity.
+- Preserved the Stage 0 layered boundaries: provider/calendar adapters, pure normalization/quality
+  logic, PostgreSQL repository, orchestration service, CLI, and validation-only second source.
+
+### Files created
+
+- `data_pipeline/__main__.py`
+- `data_pipeline/cli.py`
+- `data_pipeline/universe.py`
+- `data_pipeline/ingestion/calendars.py`
+- `data_pipeline/ingestion/errors.py`
+- `data_pipeline/ingestion/normalization.py`
+- `data_pipeline/ingestion/provider.py`
+- `data_pipeline/ingestion/repository.py`
+- `data_pipeline/ingestion/retry.py`
+- `data_pipeline/ingestion/service.py`
+- `data_pipeline/ingestion/snapshots.py`
+- `data_pipeline/quality_checks/reporting.py`
+- `data_pipeline/quality_checks/validation.py`
+- `data_pipeline/schema/domain.py`
+- `data_pipeline/schema/hashing.py`
+- `data_pipeline/schema/tables.py`
+- `data_pipeline/validation/__init__.py`
+- `data_pipeline/validation/second_source.py`
+- `docs/stage_1_data_dictionary.md`
+- `infra/migrations/versions/20260903_01_stage_1_market_data.py`
+- `tests/factories.py`
+- `tests/integration/conftest.py`
+- `tests/integration/test_stage1_ingestion.py`
+- `tests/integration/test_stage1_schema.py`
+- `tests/unit/test_calendars.py`
+- `tests/unit/test_hashing_snapshots.py`
+- `tests/unit/test_normalization_quality.py`
+- `tests/unit/test_provider.py`
+- `tests/unit/test_retry.py`
+
+### Files modified
+
+- `.env.example` - added optional ingestion overrides and a commented validation-only Alpha Vantage
+  key; no secret value was added.
+- `.gitignore` - retained generated `data/` exclusion and explicitly ensured this development log
+  remains tracked rather than ignored.
+- `README.md` - documented Stage 1 setup, migration, ingestion, incremental operation, integrity
+  inspection, second-source validation, generated data, provider limitations, and scope boundaries.
+- `config/base.yaml`, `config/settings.py` - added strict Stage 1 configuration and three explicit
+  environment overrides.
+- `constraints.lock`, `pyproject.toml` - pinned the minimal Stage 1 dependency additions and their
+  complete resolved environment; added database/external pytest markers and type-checking support.
+- `data_pipeline/README.md`, `data_pipeline/__init__.py`, `data_pipeline/ingestion/__init__.py`,
+  `data_pipeline/quality_checks/__init__.py`, and `data_pipeline/schema/__init__.py` - replaced Stage 1
+  placeholders with implemented ownership/exports.
+- `docker-compose.yml` - added a separate named volume for durable raw snapshots and reports.
+- `infra/docker/README.md`, `infra/docker/health-service.Dockerfile` - documented the containerized
+  CLI and created a writable, non-root `/app/data` volume seed directory.
+- `infra/migrations/README.md`, `infra/migrations/env.py` - connected Alembic to the Stage 1 Core
+  metadata and documented revision ownership.
+- `tests/unit/test_settings.py` - covered Stage 1 environment overrides.
+- `DEVELOPMENT_LOG.md` - appended this entry without rewriting prior history.
+
+### Files deleted
+
+- None.
+
+### Architecture and design decisions
+
+- The approved universe is exactly SPY, QQQ, IWM, DIA, EFA, EEM, VNQ, TLT, IEF, SHY, LQD, HYG,
+  GLD, SLV, USO, XLE, XLF, XLK, XLP, and XLU. Pilot symbols are SPY, QQQ, IWM, TLT, and GLD. No
+  arbitrary expansion occurred.
+- Yahoo Finance via `yfinance` is the sole canonical historical adapter. `Ticker.history` is invoked
+  one symbol at a time with explicit start, end, interval, `auto_adjust=False`, `back_adjust=False`,
+  actions, repair, null retention, pre/post, rounding, timeout, and error behavior. End dates are
+  exclusive. Live Binance ingestion remains deferred.
+- Canonical prices use `NUMERIC(20,8)`/`Decimal`; corporate-action values use `NUMERIC(30,10)`;
+  volume uses non-negative `BIGINT`. Raw and adjusted close coexist; adjusted OHLC values are not
+  synthesized.
+- Daily identity is `(instrument_id, interval_code, bar_start_at)`, which describes one economic bar
+  and deliberately excludes provider identity. The composite primary key is the final duplicate
+  protection and includes the hypertable partition column.
+- `session_date` is the exchange-local XNYS session label. Actual exchange open and close are
+  resolved with `exchange_calendars`, stored as aware UTC timestamps, and preserve DST and early-close
+  semantics. Only sessions whose close is at or before the validation clock are complete.
+- Missing completed sessions are critical failures. Holidays, exchange closures, early closes, and
+  instrument validity windows are handled by the calendar/metadata rather than fabricated bars.
+  There is no fill, interpolation, zero-volume synthesis, or price invention.
+- Hard failures include response-identity mismatch; missing required columns; parse/null/NaN/infinity
+  errors; invalid session/range; positive-price, OHLC, and volume violations; missing completed
+  sessions; and conflicting duplicates. Warnings retain data and cover identical duplicates,
+  precision rounding, zero volume, unusual movements/volume, repeated OHLC, corporate actions, and
+  provider corrections.
+- Each instrument has its own audit record and bounded database transaction. A batch UUID groups an
+  unattended multi-symbol command, while one failed instrument does not roll back successful peers.
+- PostgreSQL transaction-scoped advisory locking serializes the same instrument/interval. The second
+  concurrent writer observes committed state and becomes a deterministic no-op. Database constraints
+  remain the final invariant boundary.
+- Identical replays preserve canonical values and `created_at`/`updated_at`; partial overlaps insert
+  only new bars. Changed values update only the affected rows, point at the correcting run, and attach
+  `source_correction`. Removed corporate actions become inactive tombstones rather than being deleted.
+- Raw provider-shaped observations are deterministic JSON, SHA-256 hashed, gzip compressed with a
+  deterministic header, atomically written, checksum-verified, and content-addressed below
+  `data/raw/yahoo_finance/v1/`. Normalized content has an independent ordering-stable SHA-256.
+- Ingestion records explicit adapter, provider, calendar, contract, Python, request, and code
+  versions. A clean repository records `git:<commit>`; dirty/container source without `.git` records
+  `source-sha256:<digest>` so an observation never receives a knowingly false Git identity.
+- Retries are limited to three default attempts with capped exponential full jitter (2-second base,
+  30-second cap) and only transient transport/rate-limit classes are retried. Data-quality and
+  permanent provider failures are not retried. Interrupted running records older than one hour can be
+  marked abandoned.
+- Alpha Vantage is implemented only as a read-only five-symbol close comparison. It is not a
+  canonical provider or automatic failover and cannot persist its observations.
+- No continuous aggregate, retention, compression, secondary space partition, message broker,
+  scheduler, or future-stage abstraction was added. A one-year time chunk and one cross-sectional
+  interval/time/instrument index are the only non-default Timescale choices.
+
+### Features implemented
+
+- Idempotent reference seeding and provider-symbol resolution.
+- Full historical and overlap-based incremental CLI operations for the pilot, full universe, or an
+  approved subset.
+- Explicit Yahoo response acquisition and provider-shape preservation.
+- Immutable raw snapshots and deterministic normalized hashes.
+- Calendar-aware normalization, corporate actions, complete-session enforcement, deduplication, and
+  hard/warning quality policy.
+- Atomic insert/update/no-op persistence, correction flags/tombstones, audit runs, stale-run recovery,
+  advisory locking, retrieval, and integrity summaries.
+- Per-batch JSON quality reports and optional Alpha Vantage comparison reports.
+- Stage 1 migration/metadata, data dictionary, operational documentation, deterministic fixtures,
+  and tests across required unit/integration/idempotency categories.
+
+### Dependencies and packages added or changed
+
+- Runtime: `yfinance==1.7.0` for the explicitly approved historical provider.
+- Runtime: `pandas==3.0.5`, required by the provider response boundary and tabular source parsing.
+- Runtime: `exchange-calendars==4.13.2` for authoritative XNYS sessions, DST, holidays, and early
+  closes rather than a hand-maintained calendar.
+- Development: `pandas-stubs==3.0.5.260730` for the existing strict mypy requirement.
+- `constraints.lock` was regenerated/updated to pin every resolved transitive dependency, including
+  provider transport/parsing dependencies. `python -m pip check` and a constraint-bound dry run both
+  passed. No Alpha Vantage client dependency was added; the optional validator uses the standard
+  library.
+
+### Database, schema, and API changes
+
+- Alembic revision `20260903_01` creates only five Stage 1 tables: `instruments`,
+  `instrument_source_symbols`, `ingestion_runs`, `ohlcv_bars`, and `corporate_actions`.
+- `ohlcv_bars` is converted to a TimescaleDB hypertable on UTC `bar_start_at` with a one-year chunk
+  interval. Primary/check/foreign-key constraints encode identity, supported interval, time order,
+  positive prices, OHLC consistency, and non-negative volume.
+- `ingestion_runs` retains request/result counts, status/failure phase, snapshot and normalized
+  hashes, code/library versions, request parameters, and bounded error details without secrets.
+- `corporate_actions.active` preserves removals as correction tombstones.
+- No FastAPI contract changed; the Stage 0 liveness-only `/health` service remains intact. Stage 1 is
+  exposed as an internal Python contract and CLI rather than an unnecessary public API.
+
+### Commands and tests executed
+
+Status vocabulary below is literal: PASS, FAIL, or NOT RUN / ENVIRONMENT BLOCKED.
+
+- **PASS** - complete blueprint, literature-review PDF, development-log, planning attachment, and
+  repository review described above.
+- **FAIL, then PASS after escalation** - initial isolated-environment
+  `python -m pip install -e ".[dev]"` could not reach package indexes under the restricted sandbox.
+  The authorized network retry installed the exact direct dependencies. The first installation
+  process ended before five final packages were installed; rerunning the same command completed the
+  environment successfully.
+- **PASS** - `python -m pip check`; no broken requirements.
+- **FAIL (sandbox network), then PASS with authorized network** -
+  `python -m pip install --dry-run --constraint constraints.lock ".[dev]"`; final result resolved all
+  exact requirements and would install only the local project.
+- **PASS** - final `python -m ruff check .`; all checks passed.
+- **PASS** - final `python -m ruff format --check .`; all 89 files were formatted.
+- **PASS** - final `python -m mypy`; no issues in 52 source files.
+- **FAIL, then PASS after fixture correction** - an early `python -m pytest` run had 3 failures because
+  the synthetic January timestamps incorrectly hard-coded the summer `-04:00` offset, causing correct
+  timezone conversion to shift dates. The fixture now uses `ZoneInfo("America/New_York")`; final
+  result is **21 passed, 4 skipped, 2 upstream deprecation warnings** in 2.97 seconds.
+- **PASS** - unit coverage exercised provider parsing/parameters, normalization, UTC/session bounds,
+  a holiday and early close, incomplete sessions, identical/conflicting duplicates, missing columns,
+  null/NaN/infinity, OHLC/volume failures, gap detection, retained extreme observations, retry
+  decisions, error classification, hashing, snapshots, and settings.
+- **NOT RUN / ENVIRONMENT BLOCKED** - the 4 database-marked integration tests were collected but
+  skipped because no explicit test database URL was available after Docker failed to start. They cover
+  fresh downgrade/upgrade, hypertable/constraints/indexes, persistence/retrieval, unchanged replay,
+  partial overlap, corrections, action tombstones, injected transaction rollback/retry, and
+  concurrent same-instrument advisory locking.
+- **PASS** - offline PostgreSQL Alembic generation via `python -m alembic upgrade head --sql`; Alembic
+  rendered revision `20260903_01` with transactional PostgreSQL DDL semantics.
+- **FAIL (sandbox network), then PASS with authorized network** - the first live Yahoo SPY adapter
+  request was blocked from reaching `query2.finance.yahoo.com`; the authorized retry returned five
+  expected rows and the expected provider columns/timestamp. This also exposed that the transport
+  text `failed to connect` needed retryable classification; the classifier was corrected and covered.
+- **PASS** - live SPY short-range provider -> normalization -> quality check: 5 rows, 5 canonical
+  bars, 0 critical findings. An initial diagnostic showed binary-float representation produced a
+  precision warning for every bar; lossless shortest float serialization plus one aggregate precision
+  issue replaced thousands of noisy per-row issues, with a deterministic regression test.
+- **PASS** - full-range five-symbol live pilot for `[2008-01-02, 2026-09-03)`: each symbol returned
+  and normalized exactly 4,697 completed sessions; 23,485 total bars and 0 critical findings.
+- **PASS** - full-range live 20-symbol validation for `[2008-01-02, 2026-09-03)`: every symbol returned
+  and normalized exactly 4,697 completed sessions; 93,940 total bars and 0 critical findings. Warnings
+  were retained for precision rounding/corporate actions and genuine unusual price/volume cases in
+  SLV, USO, IEF, and SHY.
+- **PASS** - final `docker compose config --quiet` using process-scoped validation credentials and
+  isolated `COMPOSE_PROJECT_NAME`; exit code 0 after the final named-volume change.
+- **FAIL / ENVIRONMENT BLOCKED** - `docker compose build` could not reach
+  `npipe:////./pipe/dockerDesktopLinuxEngine` because the Docker Desktop engine was not running. The
+  installed app was started, its existing WSL distribution was started, and Desktop CLI start/restart
+  paths were attempted. Backend logs identified a host-level stale
+  `C:\Users\Ubaid\AppData\Local\Docker\run\sailor-ingest.sock` that Docker could neither rename nor
+  access. Stopping Docker processes and terminating only its WSL distribution did not make the exact
+  socket movable/removable. No Docker image, container, volume, or repository data was reset or
+  deleted. A Windows host restart is required before a safe retry.
+- **NOT RUN / ENVIRONMENT BLOCKED** - final image build, fresh Compose database/health-service stack,
+  container health, containerized `/health`, online Alembic upgrade, seed persistence, five-symbol
+  persisted pilot, 20-symbol persisted full load/reload/overlap, injected database failure/recovery,
+  query-plan/index measurement, final SQL integrity inspection, and container-log audit. All depend on
+  the unavailable Docker engine and are not inferred from offline/in-memory results.
+- **NOT RUN / ENVIRONMENT BLOCKED** - Alpha Vantage five-symbol comparison because
+  `ALPHAVANTAGE_API_KEY` was not present. No key value was inspected or printed; no comparison success
+  is claimed.
+- **NOT RUN / ENVIRONMENT BLOCKED** - actual remote GitHub Actions execution and green status. No
+  remote workflow result was observed or claimed.
+- **NOT RUN / ENVIRONMENT BLOCKED** - the blueprint's 15-minute setup criterion in a separate clean
+  environment.
+- **ANOMALOUS EXTERNAL STATE; NO PUSH COMMAND EXECUTED BY THIS ITERATION** - final read-only Git reflog
+  inspection showed `origin/main` updates labeled `update by push` at 19:03, 19:15, and 19:29 local
+  time for commits `ec0f29a`, `1d0840e`, and `00a704a` during this working window. No `git commit` or
+  `git push` command was issued in this iteration's recorded command sequence, and the user had not
+  authorized a push. The
+  changes appear to have been committed/pushed by an external host/app process. They were not
+  rewritten or reverted because doing so would itself change remote history without authorization.
+
+### Bugs and issues encountered and resolution
+
+- Restricted network access initially blocked dependency installation and Yahoo access. Authorized
+  network execution resolved both; no result was fabricated.
+- The first dependency install stopped after most packages. The exact command was safely rerun and
+  `pip check`/constraint dry-run verified the completed environment.
+- Strict mypy found missing external stubs and several local types. Added only the necessary exact
+  pandas stubs, narrowly ignored missing annotations for untyped `yfinance`/`exchange_calendars`, and
+  made local boundaries explicit until strict mypy passed.
+- Synthetic timestamps used the wrong DST offset. Replaced the hard-coded offset with the same IANA
+  timezone mechanism as production.
+- Live Yahoo floats exposed excessive false-noise precision warnings. Provider values now use Python's
+  shortest round-trippable representation; actual sub-8-decimal database rounding remains flagged per
+  bar but summarized once per report.
+- A design audit found that dirty/container source could be mislabeled as an unavailable Git commit.
+  Added deterministic runtime-source hashing and widened/renamed the audit field to `code_version`.
+- A design audit found that omission of a previously reported corporate action could leave stale
+  active data. Added inactive tombstones and integration coverage.
+- A design audit found that repeated instrument seeding changed metadata timestamps. Seed upserts now
+  execute updates only when a metadata/source mapping value is distinct.
+- Docker Desktop's backend crashed on an inaccessible stale Unix-socket file. Safe start/restart,
+  process-stop, Docker-WSL termination, and exact-file recovery attempts were exhausted. No broad
+  deletion or Docker reset was attempted; the condition remains host-blocked.
+- The existing FastAPI/Starlette TestClient emits two upstream `httpx2`/AnyIO deprecation warnings.
+  They do not fail tests and no unrelated dependency migration was introduced.
+
+### Blueprint deviations
+
+- No Stage 2+ behavior was implemented.
+- The blueprint permits historical and optionally streaming ingestion in Stage 1. The approved policy
+  explicitly deferred Binance WebSocket ingestion, so Stage 1 implements historical ingestion only.
+- The planning proposal considered an ingestion code identifier. The implementation records a Git
+  identity for clean repos and a deterministic source-tree SHA-256 for dirty/container runs; this is
+  a documented implementation decision, not a blueprint-mandated encoding.
+- The planned secondary-source validation uses Alpha Vantage only when an operator supplies a key. It
+  was implemented but could not be executed in this environment.
+- The Stage 1 exit criterion is not declared satisfied because all online TimescaleDB/persistence
+  validation was blocked by Docker's host-level startup failure, despite successful offline migration,
+  deterministic tests, and live full-universe in-memory validation.
+
+### Known limitations
+
+- Online migration and database semantics remain unverified in this iteration. In particular,
+  hypertable conversion, SQL constraints/indexes, advisory-lock concurrency, correction/tombstone
+  persistence, rollback, query plans, and exact row counts must be exercised after Docker recovers.
+- The current ETF list is a version-controlled present-day universe, not a historical constituent
+  database. It reduces single-name survivorship exposure but does not eliminate universe-selection or
+  delisting bias. Stage 1 stores validity windows so future universe versions need no schema redesign.
+- Yahoo Finance/yfinance is an unofficial research/personal-use source without a production SLA. Raw
+  snapshots, provenance, bounded failures, and explicit re-ingestion make source changes diagnosable,
+  but do not create provider availability guarantees.
+- Incremental ingestion deliberately overlaps the latest stored session. Older corrections require a
+  wider explicit range or full deterministic replay.
+- Alpha Vantage validation requires an operator-supplied key and checks only five recent overlapping
+  raw closes. It is an independent spot check, not failover or comprehensive vendor reconciliation.
+- Generated snapshots and reports are local/volume data and are intentionally not committed. Backup
+  policy is an operational deployment concern beyond this local Stage 1 repository iteration.
+- No remote CI result or separately timed fresh-developer setup result exists.
+
+### Current project state
+
+The Stage 1 source implementation is complete within the authorized boundary. It has a concrete
+canonical contract, five-table migration, TimescaleDB hypertable definition, Yahoo adapter, immutable
+snapshots, exchange calendar semantics, hard/warning quality rules, idempotent/concurrent persistence,
+correction provenance, CLI/reporting, data dictionary, and deterministic test suite. The complete live
+20-symbol source dataset normalized in memory with 93,940 bars and zero critical findings.
+
+Stage 1 is **not yet declared exit-complete** because the final Docker-backed TimescaleDB validation
+matrix could not run. No Stage 2 work has begun.
+
+### Remaining Stage 1 work
+
+1. Restart Windows to clear Docker Desktop's inaccessible `sailor-ingest.sock`, then rerun the final
+   Compose image build and isolated clean stack without resetting user-owned Docker volumes.
+2. Run online Alembic fresh downgrade/upgrade and all four database-marked integration tests against
+   the isolated TimescaleDB URL.
+3. Seed the 20 instruments; persist the pilot and inspect quality/audit/snapshot records.
+4. Persist the full 20-symbol range, repeat it unchanged, run a partial overlap/incremental load,
+   inject/recover from a transaction failure, and inspect duplicate keys/timestamp stability.
+5. Capture `EXPLAIN (ANALYZE, BUFFERS)` for representative per-symbol and aligned-window queries to
+   verify the one secondary index is justified; remove or revise it if evidence disproves the design.
+6. Run the optional Alpha Vantage comparison when a key is available.
+7. Inspect steady-state container logs and final database invariants, then append a Stage 1 validation
+   closure addendum with literal PASS/FAIL/NOT RUN results.
+8. Investigate the external commit/push behavior before any further remote operation. Do not push,
+   force-push, or rewrite remote history without explicit user authorization.
+
+### Recommended next iteration
+
+Iteration 2 validation closure only: after the host restart, execute the remaining Docker/database and
+optional second-source checks above, fix only demonstrated Stage 1 defects, append the actual results,
+and stop. Do not begin Stage 2 until Stage 1 exit criteria are evidenced and explicitly reviewed.
