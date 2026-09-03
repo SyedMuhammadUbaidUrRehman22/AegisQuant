@@ -32,6 +32,8 @@ from data_pipeline.schema.tables import (
     ohlcv_bars,
 )
 
+# Quality flags are batch-context diagnostics (for example, repeated OHLC depends on
+# preceding rows in the requested window), so they cannot establish a source correction.
 BAR_VALUE_COLUMNS = (
     "bar_end_at",
     "session_date",
@@ -43,7 +45,6 @@ BAR_VALUE_COLUMNS = (
     "volume",
     "source_name",
     "contract_version",
-    "quality_flags",
 )
 ACTION_VALUE_COLUMNS = ("action_value", "currency", "source_name", "active")
 

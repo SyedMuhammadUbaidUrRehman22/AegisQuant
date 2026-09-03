@@ -47,15 +47,15 @@ def upgrade() -> None:
             server_default=sa.func.now(),
             nullable=False,
         ),
-        sa.CheckConstraint("asset_class = 'etf'", name="ck_instruments_asset_class_supported"),
-        sa.CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_instruments_currency_format"),
+        sa.CheckConstraint("asset_class = 'etf'", name="asset_class_supported"),
+        sa.CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_format"),
         sa.CheckConstraint(
             "venue_mic ~ '^[A-Z0-9]{4}$'",
-            name="ck_instruments_venue_mic_format",
+            name="venue_mic_format",
         ),
         sa.CheckConstraint(
             "valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from",
-            name="ck_instruments_validity",
+            name="validity",
         ),
         sa.PrimaryKeyConstraint("instrument_id", name="pk_instruments"),
         sa.UniqueConstraint(
@@ -136,19 +136,19 @@ def upgrade() -> None:
             "rows_received >= 0 AND rows_accepted >= 0 AND rows_inserted >= 0 "
             "AND rows_updated >= 0 AND rows_unchanged >= 0 "
             "AND warning_count >= 0 AND critical_count >= 0",
-            name="ck_ingestion_runs_counts_nonnegative",
+            name="counts_nonnegative",
         ),
         sa.CheckConstraint(
             "interval_code = '1d'",
-            name="ck_ingestion_runs_interval_supported",
+            name="interval_supported",
         ),
         sa.CheckConstraint(
             "requested_end > requested_start",
-            name="ck_ingestion_runs_requested_range",
+            name="requested_range",
         ),
         sa.CheckConstraint(
             "status IN ('running', 'succeeded', 'failed', 'abandoned')",
-            name="ck_ingestion_runs_status_supported",
+            name="status_supported",
         ),
         sa.ForeignKeyConstraint(
             ["instrument_id"],
@@ -201,27 +201,27 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "adjusted_close > 0",
-            name="ck_ohlcv_bars_adjusted_close_positive",
+            name="adjusted_close_positive",
         ),
         sa.CheckConstraint(
             "high >= open AND high >= close",
-            name="ck_ohlcv_bars_high_bounds",
+            name="high_bounds",
         ),
-        sa.CheckConstraint("high >= low", name="ck_ohlcv_bars_high_gte_low"),
+        sa.CheckConstraint("high >= low", name="high_gte_low"),
         sa.CheckConstraint(
             "interval_code = '1d'",
-            name="ck_ohlcv_bars_interval_supported",
+            name="interval_supported",
         ),
         sa.CheckConstraint(
             "low <= open AND low <= close",
-            name="ck_ohlcv_bars_low_bounds",
+            name="low_bounds",
         ),
         sa.CheckConstraint(
             "open > 0 AND high > 0 AND low > 0 AND close > 0",
-            name="ck_ohlcv_bars_prices_positive",
+            name="prices_positive",
         ),
-        sa.CheckConstraint("bar_end_at > bar_start_at", name="ck_ohlcv_bars_time_order"),
-        sa.CheckConstraint("volume >= 0", name="ck_ohlcv_bars_volume_nonnegative"),
+        sa.CheckConstraint("bar_end_at > bar_start_at", name="time_order"),
+        sa.CheckConstraint("volume >= 0", name="volume_nonnegative"),
         sa.ForeignKeyConstraint(
             ["ingestion_run_id"],
             ["ingestion_runs.run_id"],
@@ -277,15 +277,15 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "(action_type = 'stock_split' AND currency IS NULL) OR "
             "(action_type <> 'stock_split' AND currency IS NOT NULL)",
-            name="ck_corporate_actions_action_currency",
+            name="action_currency",
         ),
         sa.CheckConstraint(
             "action_type IN ('dividend', 'stock_split', 'capital_gain')",
-            name="ck_corporate_actions_action_type_supported",
+            name="action_type_supported",
         ),
         sa.CheckConstraint(
             "action_value > 0",
-            name="ck_corporate_actions_action_value_positive",
+            name="action_value_positive",
         ),
         sa.ForeignKeyConstraint(
             ["ingestion_run_id"],
