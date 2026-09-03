@@ -528,3 +528,242 @@ Stage 0 exit criteria are observed and approved, the next implementation iterati
 1 planning only: select and document the initial asset universe/data source, design the normalized
 OHLCV contract and Alembic revision, and define idempotency/data-quality tests before writing ingestion
 logic. Do not begin feature engineering or any later module.
+
+---
+
+## Iteration 1 - Stage 0 Validation Closure Addendum
+
+### Date
+
+2026-09-01
+
+### Objective
+
+Close the locally environment-blocked Stage 0 Docker Compose and online database validation items from
+Iteration 1. Validate the rendered Compose configuration, build the service image, start an isolated
+TimescaleDB/FastAPI stack, verify container and HTTP health, execute Alembic online, inspect startup
+logs and database state, resolve any Stage 0 failures, and stop without beginning Stage 1.
+
+### Blueprint requirements addressed
+
+- Revalidated the Stage 0 environment and repository scaffolding deliverable and its Docker Compose,
+  PostgreSQL/TimescaleDB, FastAPI hello-world/health-service, and setup-documentation requirements.
+- Exercised the Section 11 testing strategy against the final source after the documentation fix.
+- Exercised the local portions of the Section 12 DevOps foundation: Compose rendering, image build,
+  container startup, health checks, and database migration execution.
+- Confirmed that the Alembic foundation remains table-free and contains no Stage 1 schema or domain
+  migration.
+- Did not implement or plan Stage 1 functionality in this validation closure.
+
+### Files created
+
+- None.
+
+### Files modified
+
+- `README.md` - added troubleshooting guidance explaining that `POSTGRES_PASSWORD` initializes
+  credentials only for a new PostgreSQL volume and describing safe options for an existing volume.
+- `DEVELOPMENT_LOG.md` - appended this validation record; all prior history is preserved.
+
+### Files deleted
+
+- None from the repository.
+- The disposable Docker volume `aegisquant-stage0-validation_postgres_data`, its isolated network, and
+  its two validation containers were removed after validation. The pre-existing
+  `aegisquant_postgres_data` volume was deliberately preserved.
+
+### Architecture and design decisions
+
+- Made no application architecture, API, package, dependency, or schema change. The existing minimal
+  Stage 0 layered structure remains intact.
+- Used `COMPOSE_PROJECT_NAME=aegisquant-stage0-validation` for the successful clean run so validation
+  used a newly initialized database without altering or deleting the developer's pre-existing default
+  database volume.
+- Used the repository's existing required `POSTGRES_PASSWORD` mechanism with an ephemeral validation
+  value; no credential was written to tracked files or recorded in command output.
+- Treated expected TimescaleDB entrypoint shutdown/restart messages separately from steady-state
+  errors. The final log audit began after the last `database system is ready to accept connections`
+  marker and found no startup/configuration failure.
+- Kept `/health` as a liveness-only API contract. No database-readiness coupling or later-stage
+  abstraction was introduced merely to facilitate validation.
+
+### Features implemented
+
+- No application feature was added.
+- Added only Stage 0 operational troubleshooting documentation prompted by an observed validation
+  failure.
+
+### Important implementation details
+
+- Docker Desktop was installed but its CLI directory was absent from the validation shell's `PATH`.
+  The executable was located at
+  `C:\Users\Ubaid\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe`; that directory was
+  prepended to `PATH` only for Docker command processes.
+- Validated Docker versions were Docker `29.7.2` (build `a7dcaa6`) and Docker Compose `5.5.0`; the
+  daemon reported server version `29.7.2`.
+- The stack used `timescale/timescaledb:2.18.0-pg17` and the locally built
+  `aegisquant-health-service` image. The final build resolved the Python base to
+  `python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254`.
+- The final image build completed with manifest-list digest
+  `sha256:640cdab6c587bd39d39afcc41ef634544b8642d4defaddb33983a381404058a3`.
+- Both Compose ports remained bound to loopback as designed: PostgreSQL on `127.0.0.1:5432` and the
+  health service on `127.0.0.1:8000`.
+- Online `alembic upgrade head` connected using PostgreSQL transactional DDL behavior and applied no
+  revisions because `infra/alembic/versions/` intentionally contains only its placeholder.
+- Database inspection found TimescaleDB extension version `2.18.0`, only the Alembic bookkeeping
+  table in the public schema, and zero rows in `alembic_version`. No domain table was created.
+
+### Dependencies or packages added/changed
+
+- None. The Docker and Python validations used the versions already pinned during Iteration 1.
+- Docker's routine warning about running `pip` as root inside the disposable image did not indicate a
+  dependency or build failure and did not justify adding another package or virtual environment layer.
+
+### Database, schema, and API changes
+
+- No database schema or migration revision was added or changed.
+- No API path, request model, response model, or health contract was changed.
+- The clean validation database was disposable and was removed after verification. The existing
+  developer database volume was not migrated because its stored password did not match the ephemeral
+  validation credential.
+
+### Commands and tests executed
+
+Status vocabulary below is literal: PASS, FAIL, or NOT RUN / ENVIRONMENT BLOCKED.
+
+- **PASS** - reread the authoritative 926-line
+  `docs/AegisQuant_Master_Development_Blueprint.md`, with Stage 0 and Sections 9, 11, 12, and 13 used
+  as the controlling requirements; SHA-256 was
+  `5502F64B466B672F2C6BBDEE93BE9C0F3A0310D3AAB6A8236EC872FF0DEFD7A2`.
+- **PASS** - reread the complete development log and inspected the relevant Compose, Dockerfile,
+  environment, Alembic, service, test, CI, and setup-documentation files before validation.
+- **PASS** - Docker client, Compose plugin, and daemon version checks; Docker `29.7.2`, Compose
+  `5.5.0`, and daemon `29.7.2` were available.
+- **PASS** - `docker compose config --quiet` with a process-scoped required password; exit code 0.
+- **FAIL, then PASS after environment fix** - the first `docker compose build` could not execute
+  `docker-credential-desktop` because Docker Desktop's resource directory was absent from `PATH`.
+  Prepending the installed Docker CLI directory to the command process allowed the retry to build
+  `aegisquant-health-service` successfully.
+- **PASS** - initial default-project `docker compose up --detach --no-build`; both containers reached
+  Docker `healthy`, confirming the image and service health checks worked with the existing volume.
+- **PASS** - initial host request to `http://127.0.0.1:8000/health`; HTTP 200,
+  `application/json`, body
+  `{"service":"AegisQuant","status":"ok","version":"0.0.1","environment":"development"}`.
+- **FAIL, then PASS after isolated clean-volume fix** - the initial online
+  `docker compose exec --no-TTY health-service python -m alembic upgrade head` failed with PostgreSQL
+  password authentication for user `aegisquant`. Database logs showed the existing named volume was
+  reused and initialization was skipped, so its stored credential did not match the process-scoped
+  validation value. The default stack was stopped with `docker compose down` without `--volumes`,
+  preserving the volume. A new isolated Compose project and volume were then used; the Alembic retry
+  exited 0 and reported PostgreSQL transactional DDL context.
+- **PASS** - clean isolated `docker compose up --build --detach`; the database and health-service
+  containers both reported `running|healthy`, and `docker compose ps` showed both loopback bindings.
+- **PASS** - clean-stack host `/health` request; HTTP 200 and the exact expected payload shown above.
+- **PASS** - database query confirmed the active TimescaleDB extension version was `2.18.0`.
+- **PASS** - schema query found only `public.alembic_version`; row-count query returned zero, proving
+  that online Alembic introduced no Stage 1 tables or revisions.
+- **PASS** - health-service log inspection found normal Uvicorn startup and HTTP 200 health probes,
+  with no traceback, exception, or application startup error.
+- **PASS with expected initialization messages** - raw database logs contained TimescaleDB entrypoint
+  fast-shutdown messages, including background-worker `ERROR`/`FATAL` severities during the deliberate
+  initialization restart. A steady-state audit after the final ready marker contained no `ERROR`,
+  `FATAL`, `PANIC`, traceback, or exception and showed the TimescaleDB worker launcher connected.
+- **PASS** - cleanup via isolated-project `docker compose down --volumes`; output confirmed removal of
+  the two validation containers, isolated network, and newly created validation volume. The default
+  stack had already been stopped without volume deletion.
+- **PASS** - final `docker compose config --quiet` after the README fix; exit code 0.
+- **PASS** - final `docker compose build` after the README fix; image rebuilt successfully from the
+  final source.
+- **FAIL (command context), then PASS on corrected checks** - the first consolidated local source-check
+  command did not operate in the repository context for mypy/Git, producing a missing-path error and
+  Git's ownership protection. Explicit repository selection corrected the source-tool context; Git
+  was subsequently invoked with a command-scoped `safe.directory` override rather than changing user
+  configuration.
+- **PASS** - final `python -m ruff check .`; all checks passed.
+- **PASS** - final `python -m ruff format --check .`; all 60 files were already formatted.
+- **PASS** - final `python -m mypy .`; no issues in 40 source files.
+- **PASS with warning** - final `python -m pytest`; 8 tests passed in 0.61 seconds. The previously
+  documented upstream FastAPI/Starlette `httpx2` deprecation warning remains.
+- **PASS** - final `git diff --check`; exit code 0. Git emitted the expected Windows line-ending
+  warning for `README.md`, not a whitespace-error result.
+- **NOT RUN / ENVIRONMENT BLOCKED** - actual remote GitHub Actions workflow execution/green status.
+  No remote workflow was triggered, observed, or claimed successful.
+- **NOT RUN / ENVIRONMENT BLOCKED** - the blueprint's 15-minute fresh-developer criterion. The setup
+  was not timed in a separate clean environment and is not claimed satisfied.
+- **NOT RUN / ENVIRONMENT BLOCKED** - repository/branch push. Push was explicitly withheld pending
+  user authorization; no remote state was changed.
+- **NOT RUN / ENVIRONMENT BLOCKED** - optional final read-only Docker state inspection after cleanup.
+  The approval-gated inspection command was aborted; cleanup itself had already exited 0 with explicit
+  resource-removal output, so no required runtime validation depends on this optional observation.
+
+### Bugs and issues encountered
+
+- Docker Desktop's CLI/credential-helper directory was not present in the shell `PATH` even though
+  Docker Desktop and its daemon were installed and running.
+- The default Compose database volume predated this validation and retained a different PostgreSQL
+  password; changing the environment value cannot reinitialize credentials in an existing volume.
+- A naive keyword scan of the entire TimescaleDB log treats expected one-time entrypoint restart
+  messages as current failures.
+- The sandboxed Git identity differed from the repository owner, triggering Git's dubious-ownership
+  protection for the final diff check.
+- The FastAPI test client continues to emit the upstream Starlette `httpx2` deprecation warning.
+
+### Issue resolution
+
+- Added Docker Desktop's installed resource directory to `PATH` for validation processes only, making
+  both `docker.exe` and `docker-credential-desktop.exe` discoverable.
+- Preserved the pre-existing database volume and validated online migrations against a separate clean
+  Compose project. Added README troubleshooting guidance so future developers understand PostgreSQL's
+  first-initialization password behavior and do not delete non-disposable data.
+- Audited steady-state database logs after the final readiness marker and verified extension/schema
+  state directly with SQL rather than treating deliberate entrypoint shutdown messages as persistent
+  errors.
+- Used Git's command-scoped `safe.directory` override for the read-only check; global Git
+  configuration was not modified.
+- Retained the currently pinned, passing test stack and documented the upstream warning rather than
+  introducing an unrequested dependency change.
+
+### Blueprint deviations
+
+- No architecture or implementation deviation from the Stage 0 blueprint was introduced.
+- The validation used a separate Compose project name solely to guarantee clean, nondestructive
+  database initialization. Service definitions, image configuration, and application behavior were
+  unchanged.
+
+### Known limitations
+
+- GitHub Actions has not been run remotely; local workflow/source validation is not evidence that the
+  remote workflow is green.
+- The 15-minute fresh-developer setup exit criterion has not been tested in a clean second environment.
+- The default local PostgreSQL volume retains its prior credential. This is user-owned local state,
+  not a repository defect; the README now documents safe recovery/rotation choices.
+- TimescaleDB's expected initialization restart produces transient severe log labels. Steady-state
+  logs were clean, but automated log consumers should account for the entrypoint lifecycle if such
+  monitoring is added in a later authorized stage.
+- The upstream FastAPI/Starlette TestClient deprecation warning remains as previously documented.
+
+### Current project state
+
+All locally possible Stage 0 Docker/runtime validation requested for this closure is complete. The
+Compose configuration renders, the final service image builds, a fresh isolated stack reaches healthy
+state, the containerized health endpoint returns the documented contract, TimescaleDB 2.18.0 is
+available, online Alembic connects successfully without creating domain schema, and steady-state logs
+show no startup/configuration errors. The disposable validation stack was removed after the run. No
+Stage 1 functionality or schema was introduced, and no push was performed.
+
+Stage 0 still has two external exit observations rather than local implementation gaps: a successful
+actual GitHub Actions run and a timed setup in a separate clean environment. Neither is claimed.
+
+### Remaining Stage 0 work
+
+1. When explicitly authorized, push the branch and observe an actual GitHub Actions workflow run;
+   record PASS or FAIL from the remote run rather than inferring it from local checks.
+2. Have a fresh developer or clean machine follow the README, time the setup, and record whether the
+   blueprint's under-15-minute target is met.
+
+### Recommended next iteration
+
+Do not begin Stage 1 until this validation closure is reviewed. If the user wants the remaining Stage
+0 external evidence closed first, authorize a push/remote workflow observation and arrange a clean
+environment timing exercise. Stage 1 planning and implementation remain explicitly out of scope for
+this addendum.

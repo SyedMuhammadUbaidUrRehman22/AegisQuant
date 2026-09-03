@@ -1,1 +1,47 @@
-"""Stage 1 schema package placeholder."""
+"""Canonical Stage 1 market-data schema contracts."""
+
+from data_pipeline.schema.domain import (
+    CONTRACT_VERSION,
+    AssetClass,
+    BatchIngestionResult,
+    CanonicalBar,
+    CorporateAction,
+    CorporateActionType,
+    IngestionRequest,
+    IngestionResult,
+    Instrument,
+    InstrumentSeed,
+    IntervalCode,
+    NormalizationResult,
+    PersistenceResult,
+    QualityIssue,
+    QualityReport,
+    QualitySeverity,
+    RunStatus,
+    SnapshotReference,
+    SourceBatch,
+    ValidatedBatch,
+)
+
+__all__ = [
+    "CONTRACT_VERSION",
+    "AssetClass",
+    "BatchIngestionResult",
+    "CanonicalBar",
+    "CorporateAction",
+    "CorporateActionType",
+    "IngestionRequest",
+    "IngestionResult",
+    "Instrument",
+    "InstrumentSeed",
+    "IntervalCode",
+    "NormalizationResult",
+    "PersistenceResult",
+    "QualityIssue",
+    "QualityReport",
+    "QualitySeverity",
+    "RunStatus",
+    "SnapshotReference",
+    "SourceBatch",
+    "ValidatedBatch",
+]

@@ -10,3 +10,18 @@ database:
   name: aegisquant
   user: aegisquant
   connect_timeout_seconds: 5
+
+data_pipeline:
+  source_name: yahoo_finance
+  interval_code: 1d
+  historical_start: 2008-01-02
+  raw_data_dir: data/raw
+  request_timeout_seconds: 30
+  max_attempts: 3
+  backoff_base_seconds: 2.0
+  backoff_cap_seconds: 30.0
+  stale_run_after_seconds: 3600
+  price_jump_warning_fraction: 0.25
+  repeated_ohlc_warning_sessions: 3
+  volume_spike_warning_multiple: 20.0
+  volume_window_sessions: 60

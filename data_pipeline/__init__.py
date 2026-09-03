@@ -1,1 +1,1 @@
-"""Data ingestion and quality package reserved for Stage 1."""
+"""Point-in-time-correct market-data ingestion and quality package."""

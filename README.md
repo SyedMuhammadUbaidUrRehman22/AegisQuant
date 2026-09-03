@@ -1,10 +1,10 @@
 # AegisQuant
 
 AegisQuant is a regime-aware quantitative research and portfolio-management platform. The project
-is currently at **Stage 0: Environment & Repo Scaffolding**. This iteration intentionally provides
-only a reproducible foundation: a minimal FastAPI health service, an empty TimescaleDB/PostgreSQL
-instance, configuration, migrations, tests, and CI. It contains no market-data ingestion, features,
-models, portfolio logic, risk calculations, execution, backtests, agents, or dashboard application.
+has completed **Stage 1: Data Pipeline / Market Data Ingestion**. It provides a reproducible
+foundation and a versioned, audited daily OHLCV pipeline for the approved 20-ETF research universe.
+Feature engineering, models, portfolio logic, risk calculations, execution, backtests, agents, and
+dashboard functionality remain intentionally unimplemented.
 
 The authoritative architecture and build order are in
 [`docs/AegisQuant_Master_Development_Blueprint.md`](docs/AegisQuant_Master_Development_Blueprint.md).
@@ -64,11 +64,11 @@ the resolved transitive dependency set used by local setup, Docker, and CI.
    docker compose down
    ```
 
-   To intentionally remove the local Stage 0 database volume, run `docker compose down --volumes`.
+   To intentionally remove the local database volume, run `docker compose down --volumes`.
 
 The database binds only to `127.0.0.1` by default. The Compose stack uses
 `timescale/timescaledb:2.18.0-pg17`, waits for PostgreSQL readiness, and then starts the stateless
-health service. No application tables are created.
+health service. The Stage 1 migration creates application tables only when Alembic is run.
 
 ## Local Python workflow
 
@@ -117,14 +117,18 @@ Select a layer with `AEGISQUANT_ENV=dev` (default) or `AEGISQUANT_ENV=prod`. Sup
 - `AEGISQUANT_DATABASE_USER`
 - `AEGISQUANT_DATABASE_PASSWORD`
 - `AEGISQUANT_DATABASE_CONNECT_TIMEOUT_SECONDS`
+- `AEGISQUANT_RAW_DATA_DIR`
+- `AEGISQUANT_INGESTION_REQUEST_TIMEOUT_SECONDS`
+- `AEGISQUANT_INGESTION_MAX_ATTEMPTS`
 
 Secrets are never stored in YAML. `AEGISQUANT_DATABASE_PASSWORD` is optional for the liveness
 service but required before any database connection is attempted.
 
 ## Database migrations
 
-Alembic is scaffolded under `infra/migrations/`. Stage 0 deliberately has no revisions or metadata
-because market-data tables belong to Stage 1.
+Alembic migrations are under `infra/migrations/`. The Stage 1 revision creates instrument metadata,
+source mappings, ingestion audit records, canonical OHLCV, corporate actions, and converts OHLCV to
+a TimescaleDB hypertable. It intentionally creates no future-stage feature or model tables.
 
 With a database running, either set `AEGISQUANT_DATABASE_URL` to a full SQLAlchemy URL or export the
 individual database variables, then run:
@@ -134,6 +138,38 @@ python -m alembic upgrade head
 ```
 
 All future schema changes must be committed Alembic revisions; manual schema changes are prohibited.
+
+## Stage 1 market-data ingestion
+
+Yahoo Finance via `yfinance` is the sole canonical historical adapter. It is configured explicitly
+for unadjusted daily OHLC, adjusted close, volume, and corporate actions; request end dates are
+exclusive. Yahoo Finance access is intended for research/personal use and remains subject to the
+provider's terms. Alpha Vantage is an optional, read-only validation source and never acts as an
+automatic failover or writes canonical data.
+
+With the database healthy and migrated, run:
+
+```bash
+python -m data_pipeline seed
+python -m data_pipeline ingest --pilot --start 2008-01-02 --end 2026-09-03
+python -m data_pipeline ingest --full --start 2008-01-02 --end 2026-09-03
+python -m data_pipeline ingest --full --incremental
+python -m data_pipeline inspect
+```
+
+Replace the example end date as needed. It is always exclusive; omitting it safely requests through
+the prior civil day. Each instrument has an independent audit record and transaction. Provider
+responses are stored as immutable, checksum-verified snapshots under `data/raw/`, and batch quality
+reports are written under `data/reports/`; both directories are deliberately ignored by Git.
+
+For the optional five-symbol secondary-source check, set `ALPHAVANTAGE_API_KEY` and run:
+
+```bash
+python -m data_pipeline compare-second-source
+```
+
+The canonical contract, table responsibilities, quality policy, and timestamp definitions are in
+[`docs/stage_1_data_dictionary.md`](docs/stage_1_data_dictionary.md).
 
 ## Quality checks
 
@@ -146,8 +182,9 @@ python -m mypy
 python -m pytest
 ```
 
-GitHub Actions also starts the pinned TimescaleDB image and verifies that the empty Alembic history
-can connect and upgrade to `head`.
+GitHub Actions also starts the pinned TimescaleDB image, applies the migration, and executes the
+database-marked integration and idempotency tests. Ordinary tests use deterministic fixtures and do
+not require provider network access.
 
 ## Repository boundaries
 
@@ -161,6 +198,10 @@ be imported by production code.
 - `docker` is not recognized: install/start Docker Desktop and ensure Docker Compose v2 is available.
 - Port 5432 or 8000 is occupied: change `POSTGRES_PORT` or `API_PORT` in `.env`.
 - Compose rejects `POSTGRES_PASSWORD`: copy `.env.example` to `.env` and set a non-empty value.
+- PostgreSQL rejects a newly changed password: `POSTGRES_PASSWORD` initializes credentials only when
+  the database volume is first created. If and only if the local database is disposable, run
+  `docker compose down --volumes` and start again; otherwise restore the original password or rotate
+  it explicitly inside PostgreSQL rather than deleting the volume.
 - Python installation fails: confirm `python --version` reports 3.12.x and that the virtual
   environment is active.
 - Configuration validation fails: inspect the named YAML/environment value; invalid or unknown

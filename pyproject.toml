@@ -10,18 +10,22 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic==1.19.1",
+    "exchange-calendars==4.13.2",
     "fastapi==0.141.1",
+    "pandas==3.0.5",
     "psycopg[binary]==3.3.4",
     "pydantic==2.13.5",
     "PyYAML==6.0.3",
     "SQLAlchemy==2.0.52",
     "uvicorn==0.52.4",
+    "yfinance==1.7.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "httpx==0.28.1",
     "mypy==2.3.1",
+    "pandas-stubs==3.0.5.260730",
     "pytest==9.1.1",
     "ruff==0.16.4",
     "types-PyYAML==6.0.12.20260815",
@@ -51,6 +55,10 @@ config = ["*.yaml"]
 [tool.pytest.ini_options]
 addopts = "-q --strict-config --strict-markers"
 testpaths = ["tests"]
+markers = [
+    "database: requires a PostgreSQL/TimescaleDB database",
+    "external: requires an explicitly enabled external market-data provider",
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -82,3 +90,7 @@ packages = [
     "risk_engine",
     "services",
 ]
+
+[[tool.mypy.overrides]]
+module = ["exchange_calendars", "yfinance"]
+ignore_missing_imports = true

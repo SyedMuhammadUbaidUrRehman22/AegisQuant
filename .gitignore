@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-
+DEVELOPMENT_LOG.md
 # Python environments and generated files
 .venv/
 venv/

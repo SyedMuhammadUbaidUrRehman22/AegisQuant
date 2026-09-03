@@ -1,4 +1,4 @@
-"""Alembic environment with no Stage 1+ metadata or tables."""
+"""Alembic environment for the approved Stage 1 schema."""
 
 from __future__ import annotations
 
@@ -9,15 +9,14 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from config.settings import get_settings
+from data_pipeline.schema.tables import metadata
 
 alembic_config = context.config
 
 if alembic_config.config_file_name is not None:
     fileConfig(alembic_config.config_file_name)
 
-# Stage 0 intentionally has no schema metadata. Stage 1 will replace this when its
-# normalized market-data schema is designed and approved.
-target_metadata = None
+target_metadata = metadata
 
 
 def _database_url() -> str:

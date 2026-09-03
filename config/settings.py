@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -58,6 +59,26 @@ class DatabaseSettings(BaseModel):
         return url.render_as_string(hide_password=False)
 
 
+class DataPipelineSettings(BaseModel):
+    """Validated settings for the Stage 1 historical ingestion pipeline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_name: Literal["yahoo_finance"]
+    interval_code: Literal["1d"]
+    historical_start: date
+    raw_data_dir: Path
+    request_timeout_seconds: int = Field(ge=1, le=300)
+    max_attempts: int = Field(ge=1, le=10)
+    backoff_base_seconds: float = Field(gt=0, le=60)
+    backoff_cap_seconds: float = Field(gt=0, le=900)
+    stale_run_after_seconds: int = Field(ge=60, le=86400)
+    price_jump_warning_fraction: float = Field(gt=0)
+    repeated_ohlc_warning_sessions: int = Field(ge=2, le=20)
+    volume_spike_warning_multiple: float = Field(gt=1)
+    volume_window_sessions: int = Field(ge=5, le=252)
+
+
 class Settings(BaseModel):
     """Complete validated application settings."""
 
@@ -65,6 +86,7 @@ class Settings(BaseModel):
 
     app: AppSettings
     database: DatabaseSettings
+    data_pipeline: DataPipelineSettings
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -120,6 +142,12 @@ _ENVIRONMENT_OVERRIDES: dict[str, tuple[tuple[str, ...], Callable[[str], object]
         ("database", "connect_timeout_seconds"),
         int,
     ),
+    "AEGISQUANT_RAW_DATA_DIR": (("data_pipeline", "raw_data_dir"), Path),
+    "AEGISQUANT_INGESTION_REQUEST_TIMEOUT_SECONDS": (
+        ("data_pipeline", "request_timeout_seconds"),
+        int,
+    ),
+    "AEGISQUANT_INGESTION_MAX_ATTEMPTS": (("data_pipeline", "max_attempts"), int),
 }
 
 
