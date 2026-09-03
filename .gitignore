@@ -26,6 +26,7 @@ Thumbs.db
 # Project data and generated artifacts
 data/
 artifacts/
+docs/reviews/*ANTIGRAVITY*.md
 representation_learning/checkpoints/
 backtesting/reports/*
 !backtesting/reports/README.md
