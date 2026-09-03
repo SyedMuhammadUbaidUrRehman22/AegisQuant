@@ -79,6 +79,7 @@ def normalize_source_batch(
     """Normalize source rows without silently dropping malformed observations."""
 
     issues: list[QualityIssue] = []
+    precision_rounded_count = 0
     missing = sorted(REQUIRED_COLUMNS.difference(batch.columns))
     if missing:
         issues.append(_critical("missing_columns", f"Missing required columns: {missing}"))
@@ -139,9 +140,7 @@ def normalize_source_batch(
             quality_flags: list[str] = []
             if raw_prices != rounded_prices:
                 quality_flags.append("precision_rounded")
-                issues.append(
-                    _warning("precision_rounded", "Price precision rounded to 8 decimals", session)
-                )
+                precision_rounded_count += 1
             bars.append(
                 CanonicalBar(
                     instrument_id=instrument.instrument_id,
@@ -189,6 +188,15 @@ def normalize_source_batch(
         except (ValueError, InvalidOperation) as error:
             issues.append(_critical("row_parse", f"Row {row_number}: {error}", session))
 
+    if precision_rounded_count:
+        issues.append(
+            QualityIssue(
+                code="precision_rounded",
+                severity=QualitySeverity.WARNING,
+                message=f"Price precision rounded to 8 decimals in {precision_rounded_count} bars",
+                details={"bar_count": precision_rounded_count},
+            )
+        )
     return NormalizationResult(
         bars=tuple(sorted(bars, key=lambda bar: bar.bar_start_at)),
         corporate_actions=tuple(

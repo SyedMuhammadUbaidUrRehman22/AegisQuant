@@ -46,7 +46,7 @@ def _stringify(value: object) -> str | None:
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if isinstance(value, float):
-        return format(value, ".17g")
+        return repr(value)
     return str(value)
 
 
@@ -59,6 +59,7 @@ def _looks_retryable(error: BaseException) -> bool:
         "timeout",
         "timed out",
         "connection",
+        "failed to connect",
         "temporarily unavailable",
         "rate limit",
         "too many requests",
