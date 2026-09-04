@@ -1335,3 +1335,76 @@ Stage 1 remains **blocked from exit declaration**, not source-broken: reboot Win
 isolated TimescaleDB matrix and index query plan, then run the five-symbol Alpha Vantage check when a
 credential is available. Append a validation-closure addendum and stop for review. Do not begin
 Stage 2 automatically.
+
+---
+
+## Iteration 4 - CI CursorResult Compatibility Correction
+
+**Date:** 2026-09-04
+**Stage:** Stage 1 - Data Pipeline / Market Data Ingestion
+**Status:** Local correction complete; remote rerun pending
+
+### Objective
+
+Resolve the one failure from the actual Linux CI database run reported after Iteration 3, without
+changing application behavior or crossing into Stage 2.
+
+### Evidence and root cause
+
+The supplied remote pytest result was **FAIL**: `1 failed, 64 passed, 2 warnings`. The failing test was
+`test_repository_recovery_latest_session_and_integrity_summary`. It passed a live SQLAlchemy
+`CursorResult` returned by `.tuples()` directly to `dict()`. At runtime, `dict()` detected the
+result's mapping-like interface and attempted subscription, but `CursorResult` is not subscriptable,
+raising `TypeError` before the test reached its assertions. This was a test result-conversion defect,
+not a failure in `abandon_stale_runs`, persistence, or canonical data behavior.
+
+### Files modified
+
+- `tests/integration/test_stage1_ingestion.py` - replaced implicit `dict(CursorResult)` conversion
+  with an explicit comprehension over `.mappings()`, using named `run_id` and `status` fields.
+- `DEVELOPMENT_LOG.md` - appended this Iteration 4 entry.
+
+### Files created/deleted
+
+- Created: none.
+- Deleted: none.
+
+### Dependencies, schema, and API changes
+
+- None.
+
+### Tests and commands executed
+
+- **PASS** - `.venv\\Scripts\\python.exe -m ruff check .`: `All checks passed!`.
+- **PASS** - `.venv\\Scripts\\python.exe -m ruff format --check .`: `96 files already formatted`.
+- **PASS** - `.venv\\Scripts\\python.exe -m mypy`: `Success: no issues found in 52 source files`.
+- **PASS** - local `.venv\\Scripts\\python.exe -m pytest`: `58 passed, 7 skipped, 2 warnings in
+  7.77s`. The seven database tests remain skipped locally because no database URL is configured.
+- **PASS** - an isolated SQLAlchemy execution using a real SQLite `CursorResult`, `.mappings()`, and
+  the exact explicit comprehension produced `{1: 'running'}`.
+- **FAIL - COMMAND QUOTING, RESOLVED** - the first one-line SQLite verification command was malformed
+  by nested PowerShell quoting and raised a Python `SyntaxError`. Reissuing it with safe outer quoting
+  passed. No implementation change resulted from this command error.
+- **NOT RUN** - remote CI after the correction. The earlier remote run is correctly recorded as
+  failed; no green workflow status is claimed.
+
+### Validation interpretation
+
+The reported remote run executed all 65 tests rather than skipping the seven database-marked tests.
+Therefore, the other 64 tests—including six other database tests—passed in that environment. The
+corrected recovery/latest-session/integrity-summary test still requires a remote database-backed
+rerun before it may be recorded as passed end-to-end.
+
+### Known limitations and current state
+
+- Local static and source-level validation is green.
+- Local Docker/TimescaleDB remains blocked by the host socket issue documented in Iteration 3.
+- The corrected database test has not yet completed in a remote workflow.
+- The live Alpha Vantage five-symbol comparison remains credential-blocked.
+- Stage 1 remains not exit-complete, and no Stage 2 work was started.
+
+### Recommended next action
+
+Run the existing CI workflow on this commit. If the corrected 65-test suite passes, record the exact
+remote workflow evidence and continue only the remaining Stage 1 full-load and live second-source
+validation closure. Do not begin Stage 2 automatically.

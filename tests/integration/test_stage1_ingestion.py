@@ -312,9 +312,12 @@ def test_repository_recovery_latest_session_and_integrity_summary(
 
     abandoned = repository.abandon_stale_runs(older_than_seconds=3600)
     with clean_engine.connect() as connection:
-        statuses = dict(
-            connection.execute(text("SELECT run_id, status FROM ingestion_runs")).tuples()
-        )
+        statuses = {
+            row["run_id"]: row["status"]
+            for row in connection.execute(
+                text("SELECT run_id, status FROM ingestion_runs")
+            ).mappings()
+        }
 
     provider = StaticProvider({"SPY": source_batch(_three_rows())})
     result = _service(clean_engine, provider, tmp_path).ingest_one(
