@@ -40,17 +40,17 @@ def _safe_error_message(error: BaseException) -> str:
     return _SECRET_PATTERN.sub(r"\1\2[REDACTED]", str(error))[:4000]
 
 
-def _source_digest() -> str:
-    """Hash checked-in runtime sources when repository metadata is unavailable."""
+def _source_digest(root: Path | None = None) -> str:
+    """Hash ingestion runtime sources when repository metadata is unavailable."""
 
-    root = Path(__file__).resolve().parents[2]
-    candidates = [root / "pyproject.toml", root / "constraints.lock", root / "alembic.ini"]
-    for directory in ("config", "data_pipeline", "infra", "services"):
-        candidates.extend((root / directory).rglob("*.py"))
-        candidates.extend((root / directory).rglob("*.yaml"))
+    resolved_root = root or Path(__file__).resolve().parents[2]
+    candidates = [resolved_root / "pyproject.toml", resolved_root / "constraints.lock"]
+    for directory in ("config", "data_pipeline"):
+        candidates.extend((resolved_root / directory).rglob("*.py"))
+        candidates.extend((resolved_root / directory).rglob("*.yaml"))
     digest = hashlib.sha256()
     for path in sorted({item for item in candidates if item.is_file()}):
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(path.relative_to(resolved_root).as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")

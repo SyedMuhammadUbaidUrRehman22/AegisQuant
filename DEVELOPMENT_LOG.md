@@ -1136,3 +1136,202 @@ matrix could not run. No Stage 2 work has begun.
 Iteration 2 validation closure only: after the host restart, execute the remaining Docker/database and
 optional second-source checks above, fix only demonstrated Stage 1 defects, append the actual results,
 and stop. Do not begin Stage 2 until Stage 1 exit criteria are evidenced and explicitly reviewed.
+
+---
+
+## Iteration 3 - Antigravity Review Verification and Stage 1 Corrections
+
+**Date:** 2026-09-04
+**Stage:** Stage 1 - Data Pipeline / Market Data Ingestion
+**Status:** Source corrections complete; database validation remains environment-blocked
+
+### Objective
+
+Independently verify every finding in `docs/reviews/ITERATION_2_ANTIGRAVITY_REVIEW.md` against the
+master blueprint, literature review, actual repository, prior engineering record, and executable
+behavior; correct the findings supported by evidence; add missing deterministic tests; and rerun all
+locally possible Stage 1 validation without entering Stage 2.
+
+### Context inspected before implementation
+
+- Read all 926 lines of `docs/AegisQuant_Master_Development_Blueprint.md`.
+- Extracted and read all 53 pages of `docs/aegisquant_literature_review.pdf`. It supports explicit
+  missing-data handling, point-in-time correctness, provenance, and reproducibility, but does not
+  prescribe the disputed venue MICs, normalized-hash fields, or database index names.
+- Read the complete pre-existing `DEVELOPMENT_LOG.md`, including the earlier Docker-blocked Stage 1
+  validation state.
+- Read the complete Antigravity review and inspected every affected implementation/test file.
+- Confirmed `AGENT_HANDOFF.md` was absent.
+- Inspected `git status`, `git log --oneline -n 10`, and recent changes. The starting worktree was
+  clean at `27c5894` (`Ignore Antigravity review documents`). No unrelated user changes existed.
+
+### Blueprint requirements addressed
+
+- Stage 1 reliable, versioned historical market-data pipeline and canonical long-form OHLCV data.
+- Deterministic, explicit data contracts and point-in-time/session semantics.
+- Database-enforced invariants and Alembic-managed schema evolution.
+- Idempotent bar identity, explicit source corrections, and immutable raw provenance.
+- Independent-source spot-check capability without making ordinary CI network-dependent.
+- Reproducible unit/integration testing and strict lint/type checks.
+- Performance guidance to index actual time-series lookup paths without adding advanced TimescaleDB
+  features.
+
+### Antigravity finding dispositions
+
+| Finding | Disposition | Evidence and action |
+| --- | --- | --- |
+| 1. `venue_mic` divergence | **VERIFIED - NO CHANGE REQUIRED** | The master blueprint does not prescribe `XNYS` as every instrument's MIC. The review conflated listing venue with session calendar. Production correctly uses `ARCX`/`XNAS` for identity and `XNYS` for the shared calendar. Documented the distinction and added universe coverage. Lowercase `etf` is a deliberate internal enum/storage contract, not a blueprint conflict. |
+| 2. Missing `(instrument_id, session_date)` index | **FIXED** | The review overstated this as an explicit master-blueprint schema requirement, but the index is justified by the implemented `bars_for_symbol` access path and the blueprint's `(ticker, timestamp)` lookup guidance. Added it to SQLAlchemy metadata and new revision `20260904_02`; offline SQL renders the exact index. Online existence/query-plan validation is blocked by Docker. |
+| 3. Corporate-action tombstone boundary | **VERIFIED - NO CHANGE REQUIRED** | All ingestion ranges are start-inclusive/end-exclusive. Therefore an action exactly at `requested_end` is outside the provider's completeness claim and must not be tombstoned. Added integration cases for identical/overlapping/adjacent ranges, the end boundary, later omission, and correction/reactivation; documented the semantics. |
+| 4. Deferred `Connection` import and `object` typing | **FIXED** | Imported `sqlalchemy.engine.Connection` normally and typed both persistence helpers directly. Removed redundant runtime type checks. Strict mypy passes. |
+| 5. Mutable metadata in normalized hash | **FIXED** | Defined the normalized hash as economic content. Excluded `quality_flags` and `contract_version`, retained source attribution and temporal/economic fields, and canonicalized equal `Decimal` representations. Contract version remains separate provenance. Regression tests cover unchanged content, changed OHLCV, changed flags, changed contract version, and equivalent decimal encodings. |
+| 6. Second-source validation untested/zero division | **FIXED** | Added deterministic mocked tests for success, exact and failed tolerances, zero/negative/non-finite/malformed closes, empty/insufficient overlap, invalid dates, malformed JSON, rate limits/entitlements, HTTP errors, and invalid configuration. Parser now rejects non-finite/non-positive closes and invalid timeout/tolerance before comparison. Live Alpha Vantage remains not run because no key exists. |
+| 7. Missing `CanonicalBar` domain invariants | **FIXED** | Added Pydantic defense-in-depth validation for finite positive prices, OHLC ordering, nonnegative volume, and positive bar duration. Database constraints and quality validation remain in place. |
+| 8. SPY fixture uses `ARCX` | **VERIFIED - NO CHANGE REQUIRED** | `ARCX` is consistent with the production SPY seed. Added a unit test for mixed production MICs and an integration test that round-trips every approved instrument, so the factory is no longer the only venue coverage. |
+| 9. CLI entry point lacks tests | **FIXED** | Added parser/selection/date/error/pilot/full/subset tests and extracted one small pure range-resolution helper for incremental overlap testing. The CLI architecture was not redesigned. |
+| 10. Sequential batch ingestion | **DEFERRED - JUSTIFIED** | This is a performance option, not a Stage 1 correctness defect. Independent per-instrument transactions already isolate failures. No workload evidence currently justifies additional concurrency complexity. |
+| 11. Runtime source digest includes migrations | **FIXED** | Scoped the dirty/container fallback digest to `config`, `data_pipeline`, and dependency manifests. Added a regression test proving migration changes do not alter it while ingestion-runtime changes do. Declarative schema code remains covered because it is imported runtime code. |
+| 12. Snapshot collision check re-decompresses | **REJECTED - EVIDENCE** | Existence alone cannot prove immutable content remains intact. Re-decompression/checksum verification detects corruption and preserves the provenance guarantee. Daily single-symbol snapshots are small, and no measurement shows a bottleneck. Added an explicit corrupted-snapshot read test; no optimization was introduced. |
+
+### Files created
+
+- `infra/migrations/versions/20260904_02_add_instrument_session_index.py`
+- `tests/unit/test_cli.py`
+- `tests/unit/test_domain.py`
+- `tests/unit/test_provenance.py`
+- `tests/unit/test_second_source.py`
+- `tests/unit/test_universe.py`
+
+### Files modified
+
+- `data_pipeline/cli.py` - extracted deterministic historical/incremental start-date resolution.
+- `data_pipeline/ingestion/repository.py` - corrected SQLAlchemy `Connection` typing.
+- `data_pipeline/ingestion/service.py` - narrowed fallback source-digest scope and made its root
+  injectable for deterministic tests.
+- `data_pipeline/schema/domain.py` - added canonical OHLCV/time domain invariants.
+- `data_pipeline/schema/hashing.py` - made normalized hashing economic-content based and normalized
+  equal Decimal encodings.
+- `data_pipeline/schema/tables.py` - declared the instrument/session lookup index.
+- `data_pipeline/validation/second_source.py` - hardened JSON/date/numeric/configuration validation.
+- `docs/stage_1_data_dictionary.md` - documented MIC/calendar separation, end-exclusive action
+  completeness, and normalized-hash semantics.
+- `tests/factories.py` - added a deterministic canonical-bar factory.
+- `tests/integration/test_stage1_ingestion.py` - added corporate-action boundary/correction,
+  abandoned-run recovery, latest-session, integrity-summary, and full-universe metadata tests.
+- `tests/integration/test_stage1_schema.py` - added exact index-definition verification.
+- `tests/unit/test_hashing_snapshots.py` - added economic-hash and corrupted-snapshot tests.
+- `DEVELOPMENT_LOG.md` - appended this iteration only.
+
+### Files deleted
+
+- None.
+
+### Dependencies/packages changed
+
+- None. Existing pinned dependencies are sufficient.
+
+### Database/schema/API changes
+
+- New Alembic revision `20260904_02` creates
+  `ix_ohlcv_bars_instrument_session_date` on `(instrument_id, session_date)` and drops only that
+  index on downgrade.
+- SQLAlchemy table metadata declares the same index.
+- No table, column, endpoint, or Stage 2 schema was added.
+
+### Architecture and implementation decisions
+
+- `venue_mic` remains listing identity; `calendar_code` remains session behavior. These concepts are
+  deliberately not collapsed.
+- The normalized batch digest identifies provider-attributed economic observations, not mutable
+  warning policy or schema-version metadata. Exact contract version is independently retained on
+  bars/runs, and the immutable source snapshot continues to cover the full provider response.
+- Corporate-action tombstoning is limited to the range for which the response claims completeness.
+- Snapshot verification favors audit integrity over an unmeasured micro-optimization.
+- Batch parallelism remains backlog until empirical evidence justifies it.
+
+### Commands executed and exact results
+
+- **PASS** - baseline `.venv\\Scripts\\python.exe -m ruff check .`: `All checks passed!`.
+- **PASS** - baseline `.venv\\Scripts\\python.exe -m ruff format --check .`: `90 files already
+  formatted`.
+- **PASS** - baseline `.venv\\Scripts\\python.exe -m mypy`: `Success: no issues found in 52 source
+  files`.
+- **PASS** - baseline `.venv\\Scripts\\python.exe -m pytest`: `22 passed, 4 skipped, 2 warnings`.
+- **PASS** - post-change `.venv\\Scripts\\python.exe -m pytest tests/unit`: `56 passed`.
+- **PASS** - post-change `.venv\\Scripts\\python.exe -m ruff check .`: `All checks passed!`.
+- **PASS** - post-change `.venv\\Scripts\\python.exe -m mypy`: `Success: no issues found in 52
+  source files`.
+- **PASS** - post-change full `.venv\\Scripts\\python.exe -m pytest`: `58 passed, 7 skipped, 2
+  warnings`. All seven skips are explicitly database-marked tests with no configured reachable test
+  database.
+- **PASS** - final combined static/test rerun: Ruff lint `All checks passed!`, Ruff format
+  `96 files already formatted`, mypy `Success: no issues found in 52 source files`, and pytest
+  `58 passed, 7 skipped, 2 warnings in 10.35s`.
+- **PASS** - `docker compose config --quiet` with isolated project name and validation-only password:
+  exit 0, no output.
+- **PASS** - `.venv\\Scripts\\python.exe -m alembic heads`: single head `20260904_02`.
+- **PASS** - `.venv\\Scripts\\python.exe -m alembic history`: linear chain
+  `<base> -> 20260903_01 -> 20260904_02`.
+- **PASS** - offline Alembic upgrade SQL after correcting the environment variable: both revisions
+  rendered, including
+  `CREATE INDEX ix_ohlcv_bars_instrument_session_date ON ohlcv_bars (instrument_id, session_date);`.
+- **FAIL - COMMAND CONFIGURATION, RESOLVED** - the first offline Alembic rendering attempt supplied
+  `POSTGRES_PASSWORD`, while settings require `AEGISQUANT_DATABASE_PASSWORD`; it raised the explicit
+  required-password error. The corrected command passed. No source change was needed.
+- **FAIL / ENVIRONMENT BLOCKED** - `docker compose build` for isolated project
+  `aegisquant-stage1-review`: Docker could not connect to
+  `npipe:////./pipe/dockerDesktopLinuxEngine` because the engine pipe did not exist.
+- **FAIL / ENVIRONMENT BLOCKED** - isolated `docker compose up -d`: same missing engine pipe before
+  any project container was created.
+- **NOT RUN / ENVIRONMENT BLOCKED** - clean online migration, hypertable/index/constraint inspection,
+  database persistence/retrieval/rollback/idempotency/correction/concurrency tests, query plan,
+  five-symbol persisted pilot, 20-symbol persisted full/repeat/overlap load, injected database
+  recovery, final SQL integrity checks, container health, and project container-log audit. These
+  require the unavailable Docker engine and were not inferred from offline tests.
+- **NOT RUN / CREDENTIAL BLOCKED** - live Alpha Vantage five-symbol validation.
+  `ALPHAVANTAGE_API_KEY_PRESENT=false`; no secret was inspected or printed. The complete adapter path
+  was tested with deterministic HTTP mocks.
+- **NOT RUN** - a remote GitHub Actions run; no green remote status is claimed.
+- **NOT RUN** - the blueprint's 15-minute setup criterion in a separate clean environment.
+
+### Environment issue and handling
+
+Docker Desktop 4.89.0 repeatedly crashed before starting the Linux engine. Its backend log reported:
+
+`initializing Ingest server: listening on .../sailor-ingest.sock: rename ...
+sailor-ingest.sock.stale: The file cannot be accessed by the system`
+
+The failed backend was confirmed stopped. The `%LOCALAPPDATA%\\Docker\\run` directory contained only
+four zero-byte stale socket reparse points and was recoverably renamed to
+`run.aegisquant-backup-20260904`; no image, container, volume, or repository data was deleted. Docker
+still could not start because Windows retained the underlying socket handle. This known host-level
+condition requires a full Windows reboot; further cycling was stopped to avoid unnecessary state
+changes.
+
+### Known limitations and remaining Stage 1 work
+
+- New database tests and migration behavior are authored but cannot be counted as passed until run
+  against clean TimescaleDB after the Windows reboot.
+- The new index's offline DDL is verified, but real existence and `EXPLAIN (ANALYZE, BUFFERS)` evidence
+  remain unavailable.
+- The live five-symbol independent-source criterion remains blocked on an Alpha Vantage API key.
+- Existing upstream Starlette/FastAPI `httpx2` and AnyIO deprecation warnings remain non-failing; no
+  unrelated dependency migration was added.
+- Parallel batch ingestion and snapshot write-path optimization remain evidence-gated backlog items.
+
+### Blueprint deviations
+
+- No Stage 2+ functionality was implemented.
+- No master-blueprint requirement was changed. The data dictionary now makes explicit the existing
+  implementation choice to keep accurate listing MICs separate from the shared XNYS calendar.
+- Stage 1 is not declared exit-complete because required online database and live secondary-source
+  validation lacks actual evidence.
+
+### Current project state and recommended next action
+
+The Stage 1 source implementation is materially stronger and all locally executable deterministic
+tests/static checks pass. The Antigravity review has been fully dispositioned; no finding is ignored.
+Stage 1 remains **blocked from exit declaration**, not source-broken: reboot Windows, rerun the clean
+isolated TimescaleDB matrix and index query plan, then run the five-symbol Alpha Vantage check when a
+credential is available. Append a validation-closure addendum and stop for review. Do not begin
+Stage 2 automatically.

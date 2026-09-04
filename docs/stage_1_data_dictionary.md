@@ -12,7 +12,9 @@ calendar open and close, including early closes. Request ranges are start-inclus
 The checked-in universe is exactly: SPY, QQQ, IWM, DIA, EFA, EEM, VNQ, TLT, IEF, SHY, LQD, HYG,
 GLD, SLV, USO, XLE, XLF, XLK, XLP, and XLU. The pilot subset is SPY, QQQ, IWM, TLT, and GLD. All are
 USD ETFs on the XNYS exchange calendar, with provider-specific symbols stored separately from their
-canonical identity.
+canonical identity. `venue_mic` records the actual primary listing venue (`ARCX` or `XNAS`), while
+`calendar_code` independently selects the shared `XNYS` session schedule. A MIC is an instrument
+identity attribute; it is not a calendar identifier.
 
 ## Tables
 
@@ -67,7 +69,9 @@ Positive dividends, stock-split ratios, and capital-gain distributions keyed by 
 effective date, and action type. Splits have no currency; cash events use instrument currency. The
 row references the run/snapshot that produced its current value and follows the same idempotent
 insert/update/no-op behavior. A provider correction that removes an action marks it inactive and
-retains the row as an auditable tombstone.
+retains the row as an auditable tombstone. Completeness and tombstoning use the same
+start-inclusive/end-exclusive request range as bars: an action exactly on `requested_end` is outside
+the request and remains untouched.
 
 ## Quality policy
 
@@ -91,4 +95,7 @@ Every successful provider response is serialized as deterministic JSON, SHA-256 
 compressed with a deterministic header, and atomically stored at a content-addressed path below
 `data/raw/yahoo_finance/v1/`. The snapshot hash covers acquisition metadata and provider-shaped
 values. A separate normalized hash covers sorted canonical bars and actions but excludes run and
-ingestion timestamps. Snapshot files and reports are local/generated data and are not committed.
+ingestion timestamps. It also excludes mutable quality flags and the contract version so equal
+economic content remains equal across quality-policy or schema-version changes; contract version is
+recorded separately on every run and canonical bar. Snapshot files and reports are local/generated
+data and are not committed.

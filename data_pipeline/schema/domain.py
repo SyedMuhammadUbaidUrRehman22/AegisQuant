@@ -156,7 +156,7 @@ class CanonicalBar(BaseModel):
     low: Decimal
     close: Decimal
     adjusted_close: Decimal
-    volume: int
+    volume: int = Field(ge=0)
     source_name: str
     contract_version: int = CONTRACT_VERSION
     quality_flags: tuple[str, ...] = ()
@@ -169,6 +169,21 @@ class CanonicalBar(BaseModel):
         if value.tzinfo is None:
             raise ValueError("bar timestamps must be timezone-aware")
         return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_market_invariants(self) -> CanonicalBar:
+        """Enforce canonical OHLCV invariants before persistence."""
+
+        prices = (self.open, self.high, self.low, self.close, self.adjusted_close)
+        if any(not price.is_finite() or price <= 0 for price in prices):
+            raise ValueError("canonical prices must be finite and positive")
+        if self.high < self.open or self.high < self.close or self.high < self.low:
+            raise ValueError("high must be greater than or equal to open, close, and low")
+        if self.low > self.open or self.low > self.close:
+            raise ValueError("low must be less than or equal to open and close")
+        if self.bar_end_at <= self.bar_start_at:
+            raise ValueError("bar_end_at must be later than bar_start_at")
+        return self
 
 
 class CorporateAction(BaseModel):

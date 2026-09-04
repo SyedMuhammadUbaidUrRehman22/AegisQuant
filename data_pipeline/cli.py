@@ -94,6 +94,24 @@ def _selected_symbols(arguments: argparse.Namespace) -> tuple[str, ...]:
     return requested
 
 
+def _resolve_start_date(
+    repository: MarketDataRepository,
+    instrument_id: int,
+    *,
+    configured_start: date,
+    requested_start: date | None,
+    incremental: bool,
+) -> date:
+    """Resolve a deterministic historical or overlap-aware incremental start."""
+
+    start_date = requested_start or configured_start
+    if incremental:
+        latest = repository.latest_session(instrument_id)
+        if latest is not None:
+            start_date = latest
+    return start_date
+
+
 def main(argv: list[str] | None = None) -> int:
     """Execute one Stage 1 operational command."""
 
@@ -125,11 +143,13 @@ def main(argv: list[str] | None = None) -> int:
     requests: list[IngestionRequest] = []
     for symbol in _selected_symbols(arguments):
         instrument = repository.get_instrument(symbol)
-        start_date = arguments.start or settings.data_pipeline.historical_start
-        if arguments.incremental:
-            latest = repository.latest_session(instrument.instrument_id)
-            if latest is not None:
-                start_date = latest
+        start_date = _resolve_start_date(
+            repository,
+            instrument.instrument_id,
+            configured_start=settings.data_pipeline.historical_start,
+            requested_start=arguments.start,
+            incremental=arguments.incremental,
+        )
         requests.append(
             IngestionRequest(canonical_symbol=symbol, start_date=start_date, end_date=end_date)
         )

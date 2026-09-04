@@ -28,6 +28,8 @@ def _fetch_alpha_vantage(symbol: str, api_key: str, timeout_seconds: int) -> dic
     try:
         with urlopen(f"{ALPHA_VANTAGE_URL}?{parameters}", timeout=timeout_seconds) as response:
             payload: object = json.load(response)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError("Alpha Vantage response is not valid JSON") from error
     except (HTTPError, URLError, TimeoutError, OSError) as error:
         raise RuntimeError(f"Alpha Vantage transport failed: {type(error).__name__}") from None
     if not isinstance(payload, dict):
@@ -46,9 +48,16 @@ def _fetch_alpha_vantage(symbol: str, api_key: str, timeout_seconds: int) -> dic
             raise ValueError("Alpha Vantage daily row has an invalid shape")
         raw_close = raw_values.get("4. close")
         try:
-            parsed[date.fromisoformat(raw_date)] = Decimal(str(raw_close))
+            parsed_date = date.fromisoformat(raw_date)
+        except (InvalidOperation, ValueError) as error:
+            raise ValueError("Alpha Vantage session date is invalid") from error
+        try:
+            close = Decimal(str(raw_close))
         except (InvalidOperation, ValueError) as error:
             raise ValueError("Alpha Vantage close value is invalid") from error
+        if not close.is_finite() or close <= 0:
+            raise ValueError("Alpha Vantage close value must be finite and positive")
+        parsed[parsed_date] = close
     return parsed
 
 
@@ -65,6 +74,10 @@ def compare_alpha_vantage(
 
     if not api_key:
         raise ValueError("ALPHAVANTAGE_API_KEY is required for second-source validation")
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    if not relative_tolerance.is_finite() or relative_tolerance < 0:
+        raise ValueError("relative_tolerance must be finite and nonnegative")
     end_date = (as_of or date.today()) + timedelta(days=1)
     start_date = end_date - timedelta(days=180)
     results: list[dict[str, object]] = []

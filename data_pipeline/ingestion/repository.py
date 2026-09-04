@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy import Engine, RowMapping, func, insert, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from data_pipeline.ingestion.errors import DatabaseIntegrityError
@@ -331,12 +332,8 @@ class MarketDataRepository:
 
     @staticmethod
     def _persist_bars(
-        connection: object, run_id: UUID, bars: Sequence[CanonicalBar]
+        connection: Connection, run_id: UUID, bars: Sequence[CanonicalBar]
     ) -> tuple[int, int, int]:
-        from sqlalchemy.engine import Connection
-
-        if not isinstance(connection, Connection):
-            raise TypeError("connection must be a SQLAlchemy Connection")
         if not bars:
             return 0, 0, 0
         keys = [(bar.instrument_id, bar.interval_code.value, bar.bar_start_at) for bar in bars]
@@ -384,7 +381,7 @@ class MarketDataRepository:
 
     @staticmethod
     def _persist_actions(
-        connection: object,
+        connection: Connection,
         run_id: UUID,
         instrument: Instrument,
         actions: Sequence[CorporateAction],
@@ -392,10 +389,6 @@ class MarketDataRepository:
         requested_start: date,
         requested_end: date,
     ) -> tuple[int, int, int]:
-        from sqlalchemy.engine import Connection
-
-        if not isinstance(connection, Connection):
-            raise TypeError("connection must be a SQLAlchemy Connection")
         keys = [
             (action.instrument_id, action.effective_date, action.action_type.value)
             for action in actions

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
@@ -166,3 +167,186 @@ def test_concurrent_same_instrument_ingestion_serializes_without_duplicates(
     assert sorted(result.persistence.inserted for result in results) == [0, 3]  # type: ignore[attr-defined, union-attr]
     assert repository.integrity_summary()["bars"] == 3
     assert repository.integrity_summary()["duplicate_bar_keys"] == 0
+
+
+@pytest.mark.database
+def test_corporate_action_tombstones_respect_exclusive_range_boundaries(
+    clean_engine: Engine, tmp_path: Path
+) -> None:
+    repository = MarketDataRepository(clean_engine)
+    repository.seed_instruments(STAGE_1_UNIVERSE)
+    provider = StaticProvider(
+        {
+            "SPY": source_batch(
+                tuple(
+                    source_row(day, dividend="0.50" if day == date(2024, 1, 4) else "0")
+                    for day in (
+                        date(2024, 1, 2),
+                        date(2024, 1, 3),
+                        date(2024, 1, 4),
+                        date(2024, 1, 5),
+                    )
+                ),
+                end=date(2024, 1, 6),
+            )
+        }
+    )
+    service = _service(clean_engine, provider, tmp_path)
+
+    initial = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 2), end_date=date(2024, 1, 6)
+        ),
+        as_of=datetime(2024, 1, 7, tzinfo=UTC),
+    )
+    assert initial.status is RunStatus.SUCCEEDED
+
+    provider.batches["SPY"] = source_batch(
+        (source_row(date(2024, 1, 2)), source_row(date(2024, 1, 3))),
+        end=date(2024, 1, 4),
+    )
+    boundary = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 2), end_date=date(2024, 1, 4)
+        ),
+        as_of=datetime(2024, 1, 5, tzinfo=UTC),
+    )
+    provider.batches["SPY"] = source_batch(
+        (source_row(date(2024, 1, 5)),),
+        start=date(2024, 1, 5),
+        end=date(2024, 1, 6),
+    )
+    adjacent = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 5), end_date=date(2024, 1, 6)
+        ),
+        as_of=datetime(2024, 1, 7, tzinfo=UTC),
+    )
+    with clean_engine.connect() as connection:
+        active_after_boundaries = connection.scalar(
+            text("SELECT active FROM corporate_actions WHERE effective_date = '2024-01-04'")
+        )
+
+    provider.batches["SPY"] = source_batch(
+        (source_row(date(2024, 1, 3)), source_row(date(2024, 1, 4))),
+        start=date(2024, 1, 3),
+        end=date(2024, 1, 5),
+    )
+    missing_in_overlap = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 3), end_date=date(2024, 1, 5)
+        ),
+        as_of=datetime(2024, 1, 6, tzinfo=UTC),
+    )
+    with clean_engine.connect() as connection:
+        active_after_missing = connection.scalar(
+            text("SELECT active FROM corporate_actions WHERE effective_date = '2024-01-04'")
+        )
+
+    provider.batches["SPY"] = source_batch(
+        (
+            source_row(date(2024, 1, 3)),
+            source_row(date(2024, 1, 4), dividend="0.75"),
+        ),
+        start=date(2024, 1, 3),
+        end=date(2024, 1, 5),
+    )
+    corrected = service.ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 3), end_date=date(2024, 1, 5)
+        ),
+        as_of=datetime(2024, 1, 6, tzinfo=UTC),
+    )
+    with clean_engine.connect() as connection:
+        action = (
+            connection.execute(
+                text(
+                    "SELECT active, action_value FROM corporate_actions "
+                    "WHERE effective_date = '2024-01-04'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert boundary.status is RunStatus.SUCCEEDED
+    assert adjacent.status is RunStatus.SUCCEEDED
+    assert active_after_boundaries is True
+    assert missing_in_overlap.persistence is not None
+    assert missing_in_overlap.persistence.actions_updated == 1
+    assert active_after_missing is False
+    assert corrected.persistence is not None and corrected.persistence.actions_updated == 1
+    assert action["active"] is True
+    assert str(action["action_value"]) == "0.7500000000"
+
+
+@pytest.mark.database
+def test_repository_recovery_latest_session_and_integrity_summary(
+    clean_engine: Engine, tmp_path: Path
+) -> None:
+    repository = MarketDataRepository(clean_engine)
+    (instrument,) = repository.seed_instruments(STAGE_1_UNIVERSE[:1])
+    old_run_id = uuid4()
+    recent_run_id = uuid4()
+    for run_id in (old_run_id, recent_run_id):
+        repository.create_run(
+            run_id=run_id,
+            batch_id=uuid4(),
+            instrument=instrument,
+            requested_start=date(2024, 1, 2),
+            requested_end=date(2024, 1, 5),
+            interval_code="1d",
+            adapter_version="test",
+            provider_library_version="test",
+            calendar_library_version="test",
+            python_version="test",
+            code_version="test",
+            git_dirty=False,
+            request_parameters={},
+        )
+    with clean_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE ingestion_runs SET started_at = :started WHERE run_id = :run_id"),
+            {"started": datetime.now(UTC) - timedelta(hours=2), "run_id": old_run_id},
+        )
+
+    abandoned = repository.abandon_stale_runs(older_than_seconds=3600)
+    with clean_engine.connect() as connection:
+        statuses = dict(
+            connection.execute(text("SELECT run_id, status FROM ingestion_runs")).tuples()
+        )
+
+    provider = StaticProvider({"SPY": source_batch(_three_rows())})
+    result = _service(clean_engine, provider, tmp_path).ingest_one(
+        IngestionRequest(
+            canonical_symbol="SPY", start_date=date(2024, 1, 2), end_date=date(2024, 1, 5)
+        ),
+        as_of=datetime(2024, 1, 6, tzinfo=UTC),
+    )
+    summary = repository.integrity_summary()
+
+    assert abandoned == 1
+    assert statuses[old_run_id] == "abandoned"
+    assert statuses[recent_run_id] == "running"
+    assert result.status is RunStatus.SUCCEEDED
+    assert repository.latest_session(instrument.instrument_id) == date(2024, 1, 4)
+    assert summary == {
+        "instruments": 1,
+        "source_symbols": 1,
+        "bars": 3,
+        "corporate_actions": 0,
+        "ingestion_runs": 3,
+        "duplicate_bar_keys": 0,
+    }
+
+
+@pytest.mark.database
+def test_all_approved_venue_and_calendar_metadata_round_trips(clean_engine: Engine) -> None:
+    repository = MarketDataRepository(clean_engine)
+    seeded = repository.seed_instruments(STAGE_1_UNIVERSE)
+
+    assert len(seeded) == 20
+    assert {(item.canonical_symbol, item.venue_mic) for item in seeded} == {
+        (seed.canonical_symbol, seed.venue_mic) for seed in STAGE_1_UNIVERSE
+    }
+    assert {item.calendar_code for item in seeded} == {"XNYS"}

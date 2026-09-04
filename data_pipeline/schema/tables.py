@@ -215,6 +215,11 @@ Index(
     ohlcv_bars.c.bar_start_at,
     ohlcv_bars.c.instrument_id,
 )
+Index(
+    "ix_ohlcv_bars_instrument_session_date",
+    ohlcv_bars.c.instrument_id,
+    ohlcv_bars.c.session_date,
+)
 Index("ix_ingestion_runs_batch_id", ingestion_runs.c.batch_id)
 Index(
     "ix_ingestion_runs_instrument_started",

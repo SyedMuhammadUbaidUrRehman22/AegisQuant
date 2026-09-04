@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from data_pipeline.schema import AssetClass, Instrument, SourceBatch
+from data_pipeline.schema import AssetClass, CanonicalBar, Instrument, SourceBatch
 
 
 def instrument(*, instrument_id: int = 1, symbol: str = "SPY") -> Instrument:
@@ -86,4 +87,32 @@ def source_batch(
         columns=columns,
         rows=rows,
         metadata={"fixture": "true"},
+    )
+
+
+def canonical_bar(
+    *,
+    session: date = date(2024, 1, 2),
+    close: str = "101",
+    quality_flags: tuple[str, ...] = (),
+    contract_version: int = 1,
+) -> CanonicalBar:
+    """Build one valid deterministic canonical observation."""
+
+    start = datetime.combine(session, time(14, 30), tzinfo=UTC)
+    return CanonicalBar(
+        instrument_id=1,
+        interval_code="1d",
+        session_date=session,
+        bar_start_at=start,
+        bar_end_at=start + timedelta(hours=6, minutes=30),
+        open=Decimal("100"),
+        high=Decimal("102"),
+        low=Decimal("99"),
+        close=Decimal(close),
+        adjusted_close=Decimal("100.5"),
+        volume=1_000_000,
+        source_name="yahoo_finance",
+        contract_version=contract_version,
+        quality_flags=quality_flags,
     )
