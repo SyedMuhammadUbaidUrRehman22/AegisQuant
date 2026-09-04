@@ -1408,3 +1408,44 @@ rerun before it may be recorded as passed end-to-end.
 Run the existing CI workflow on this commit. If the corrected 65-test suite passes, record the exact
 remote workflow evidence and continue only the remaining Stage 1 full-load and live second-source
 validation closure. Do not begin Stage 2 automatically.
+
+---
+
+## Stage 2 Iteration 1 - Deterministic Feature Definitions and Computation
+
+**Date:** 2026-09-04
+**Objective:** Establish the blueprint-required pure, vectorized feature library and versioned
+registry over the canonical Stage 1 daily OHLCV contract.
+
+### Requirements and feature definitions
+
+Implemented adjusted simple and log close-to-close returns (1 observation), 20-session momentum,
+20-return realized volatility (sample standard deviation of log returns, annualized by
+`sqrt(252)`), and 60-aligned-session rolling correlation of simple returns to SPY. All features use
+the current completed bar, exclude every future/target period, and set `feature_as_of = bar_end_at`.
+The registry records inputs, dependencies, windows, minimum observations, output domain, missing
+policy, benchmark/annualization parameters, and a deterministic SHA-256 definition hash.
+
+No macro feature was added because Stage 1 contains no canonical macro source. No scaling was
+implemented; downstream training must fit scalers inside each time-ordered training fold. Closures
+create no row, new listings remain in warm-up, missing inputs are never filled, and constant
+correlation windows are explicitly undefined. Decimal canonical values convert once to float64;
+prices and volume are revalidated before computation and outputs are never rounded.
+
+### Files changed
+
+- `feature_engineering/{registry.py,computation.py,__init__.py}`
+- `feature_engineering/features/{price.py,__init__.py}`
+- `tests/unit/test_feature_{formulas,registry,computation}.py`
+- `DEVELOPMENT_LOG.md`
+
+Dependencies changed: none. Storage and orchestration remain for Iteration 2.
+
+### Tests executed
+
+- **PASS** - targeted Ruff lint: `All checks passed!` after import/line fixes.
+- **PASS** - targeted pytest: `13 passed in 4.73s`.
+- **FAIL - COMMAND GLOB, RESOLVED** - PowerShell did not expand a wildcard passed to mypy; the
+  project-configured full mypy command is used for final validation. No source defect was involved.
+- Docker was not retried: the documented Docker Desktop socket failure is an external environment
+  limitation and there is no new evidence of a changed environment.
