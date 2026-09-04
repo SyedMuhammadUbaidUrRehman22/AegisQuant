@@ -15,7 +15,7 @@ discontinuities. Outputs are float64 and are not rounded.
 |---|---|---:|---|
 | `adjusted_simple_return_1d` | `P[t]/P[t-1]-1` | 2 prices | `(-1,+inf)` |
 | `adjusted_log_return_1d` | `ln(P[t]/P[t-1])` | 2 prices | finite real |
-| `realized_volatility_20d` | `sample_std(log returns[t-19:t])*sqrt(252)` | 21 prices | `[0,+inf)` |
+| `rolling_annualized_volatility_20d` | `sample_std(log returns[t-19:t])*sqrt(252)` | 21 prices | `[0,+inf)` |
 | `momentum_20d` | `P[t]/P[t-20]-1` | 21 prices | `(-1,+inf)` |
 | `rolling_correlation_spy_60d` | sample correlation with SPY simple returns | 61 prices, 60 aligned returns | `[-1,1]` |
 

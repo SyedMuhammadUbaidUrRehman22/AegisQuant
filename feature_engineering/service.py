@@ -15,6 +15,8 @@ from feature_engineering.registry import FeatureRegistry
 def materialize_features(
     engine: Engine, *, as_of: datetime, registry: FeatureRegistry | None = None
 ) -> tuple[FeatureObservation, ...]:
+    """Read canonical bars, compute registered features, and persist them atomically."""
+
     selected_registry = registry or FeatureRegistry()
     bars = CanonicalFeatureInput(engine).bars_as_of(as_of)
     observations = compute_features(bars, as_of=as_of, registry=selected_registry)

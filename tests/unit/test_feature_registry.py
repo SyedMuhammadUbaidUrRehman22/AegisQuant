@@ -13,7 +13,7 @@ def test_default_registry_is_complete_and_point_in_time_safe() -> None:
     assert {item.name for item in registry.all()} == {
         "adjusted_simple_return_1d",
         "adjusted_log_return_1d",
-        "realized_volatility_20d",
+        "rolling_annualized_volatility_20d",
         "momentum_20d",
         "rolling_correlation_spy_60d",
     }

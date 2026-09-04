@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy.dialects import postgresql
 
-from feature_engineering.persistence import FeatureRepository
+from feature_engineering.persistence import FeatureRepository, _batches
 from feature_engineering.tables import feature_values
 
 
@@ -22,6 +23,12 @@ def test_feature_table_identity_and_point_in_time_constraint() -> None:
         if constraint.name and hasattr(constraint, "sqltext")
     }
     assert "feature_as_of <= bar_end_at" in constraints["ck_feature_values_point_in_time"]
+
+
+def test_write_batches_are_bounded_and_validate_size() -> None:
+    assert _batches(tuple(range(5)), 2) == ((0, 1), (2, 3), (4,))
+    with pytest.raises(ValueError, match="positive"):
+        _batches((1,), 0)
 
 
 def test_read_as_of_query_contains_both_temporal_guards() -> None:

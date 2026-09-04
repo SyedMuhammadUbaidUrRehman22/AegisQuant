@@ -1507,3 +1507,85 @@ Dependencies changed: none. Migration chain: `20260904_02 -> 20260904_03`.
 The deterministic source, mathematical, temporal-mutation, registry, migration-render, and full
 regression checks pass locally. Online PostgreSQL execution of the new integration test remains to
 be confirmed by CI or a changed local database environment; no local Docker success is claimed.
+
+---
+
+## Blueprint Research Audit - Evidence and Methodology Corrections
+
+**Date:** 2026-09-04
+**Objective:** Verify research-dependent blueprint claims against identifiable primary papers and
+authoritative publication records, then correct unsupported or contradictory requirements.
+
+### Sources reviewed
+
+Primary/authoritative records reviewed included Hamilton (1989), Bucci and Ciciretti (2022),
+Markowitz (1952), Boyd et al. (2017), Diamond and Boyd (2016), Almgren and Chriss (2001), Kelly and
+Xiu (2023), Dolphin et al. (2024), Saly-Kaufmann et al. (2026), and López de Prado's validation and
+multiple-testing material. Incomplete research-library entries were not used as evidence.
+
+### Corrections
+
+- Distinguished daily rolling sample volatility/correlation from realized covariance estimated
+  from higher-frequency returns.
+- Made Monte Carlo optional rather than a false mathematical prerequisite for Markowitz portfolio
+  optimization and historical/parametric risk baselines.
+- Separated VWAP/TWAP scheduling from the Almgren-Chriss implementation-shortfall model.
+- Deferred the Stage 3 HTTP endpoint to the Stage 10 service layer.
+- Replaced architecture-first deep-learning progression with naive, linear, and comparable sequence
+  baselines; separated embedding evaluation from forecast evaluation.
+- Strengthened HMM validation with held-out predictive likelihood, initialization stability, and
+  probabilistic outputs; historical-event alignment remains qualitative.
+- Limited purging and embargo to documented label-information overlap/dependence and reclassified
+  regime-label permutation as a sensitivity diagnostic rather than proof.
+- Added multiple-testing-aware performance reporting and explicit primary-source evidence notes.
+
+### Files and validation
+
+- Modified `docs/AegisQuant_Master_Development_Blueprint.md` (version 1.1).
+- Appended this record to `DEVELOPMENT_LOG.md`.
+- Dependencies and runtime code changed: none.
+- **PASS** - all 19 numbered blueprint sections are present and sequential.
+- **PASS** - `git diff --check` reports no whitespace errors.
+- Automated runtime tests were not rerun because this iteration changes documentation only.
+
+---
+
+## Stage 2 Iteration 3 - Blueprint 1.1 Code Alignment
+
+**Date:** 2026-09-04
+**Objective:** Audit implemented Stages 0–2 against the research-corrected blueprint and close
+concrete code, contract, scalability, and documentation mismatches without entering Stage 3.
+
+### Changes and decisions
+
+- Renamed `realized_volatility_20d` and its formula function to
+  `rolling_annualized_volatility_20d` / `rolling_annualized_volatility`. The implementation is the
+  annualized sample standard deviation of daily log returns, not a realized-volatility estimator
+  constructed from intraday returns. The feature name and definition hash therefore change together.
+- Added runtime validation to `FeatureObservation`: positive/nonempty identity, SHA-256 definition
+  hash, timezone-aware timestamps, `feature_as_of <= bar_end_at`, supported missing reason, and
+  finite/null value consistency. This makes the shared-table write contract fail before SQL.
+- Replaced the unbounded feature upsert with configurable 1,000-row transactional batches, avoiding
+  PostgreSQL parameter-limit failure on full-universe history. Conflict updates now execute only
+  when value, missing reason, or as-of metadata actually differs, preserving idempotent timestamps.
+- Added `python -m feature_engineering --as-of <ISO-8601>` orchestration. The explicit timezone-aware
+  cutoff is required so scheduled and manual runs are reproducible and cannot silently use wall time.
+- Updated root and feature READMEs to report Stage 2 accurately and document its command/table.
+- Added unit coverage for boundary validation, bounded batching, revised registry identity, formula
+  naming, and CLI cutoff/disposal behavior.
+
+Dependencies and migrations changed: none. Stage 0 and Stage 1 runtime contracts required no code
+changes. The untracked research library was preserved without modification.
+
+### Validation
+
+- **PASS** - Ruff lint: `All checks passed!`.
+- **PASS** - strict mypy: `Success: no issues found in 60 source files`.
+- **PASS** - full pytest: `77 passed, 8 skipped, 2 warnings in 5.14s`. The eight skips are explicitly
+  database-marked because no database URL is configured.
+- **PASS** - `python -m feature_engineering --help` exposes the required `--as-of` contract.
+- **PASS** - Alembic has one head, `20260904_03`; offline PostgreSQL DDL still renders the
+  `feature_values` table and point-in-time constraint.
+- **PASS** - `git diff --check` reports no whitespace errors.
+- **NOT RUN / ENVIRONMENT LIMITED** - online TimescaleDB tests. The known external Docker Desktop
+  limitation was not retried because there is no new evidence of an environment change.

@@ -2,7 +2,7 @@
 
 **Internal Technical Documentation**
 **Autonomous Regime-Aware Quantitative Intelligence & Portfolio Optimization Platform**
-**Version 1.0 — Final Year Project Master Document**
+**Version 1.1 — Research-Audited Final Year Project Master Document**
 
 ---
 
@@ -25,7 +25,8 @@
 15. Risk Register
 16. Things That Usually Go Wrong
 17. Recommended Weekly Roadmap
-18. Final Architecture Review
+18. Research Evidence Corrections
+19. Final Architecture Review
 
 ---
 
@@ -147,7 +148,7 @@ This is the exact sequence developers should follow. Each stage lists what "done
 
 ### Stage 2 — Feature Engineering
 - **Purpose:** Transform raw OHLCV into the features consumed by regime detection, representation learning, and forecasting.
-- **Expected outputs:** A versioned `features` table/parquet store (returns, realized volatility, rolling correlations, macro features if used).
+- **Expected outputs:** A versioned `features` table/parquet store (returns, rolling annualized volatility, rolling correlations, macro features only if a point-in-time canonical source is added).
 - **Dependencies:** Stage 1.
 - **Deliverables:** Feature computation library (pure functions, vectorized), a feature registry (name → definition → lookback window), unit tests comparing computed features against hand-calculated values on a toy series.
 - **Possible blockers:** Look-ahead bias (using future data in a rolling window); inconsistent handling of missing data across features.
@@ -157,22 +158,22 @@ This is the exact sequence developers should follow. Each stage lists what "done
 ### Stage 3 **[P]** — Regime Detection (HMM)
 - **Purpose:** Produce a regime label/probability distribution per time step.
 - **Dependencies:** Stage 2.
-- **Deliverables:** Baseline Gaussian HMM (Baum-Welch + Viterbi), model selection via BIC, a `regime_history` table, evaluation notebook comparing regimes against known volatility spikes (e.g., 2020 COVID crash, 2022 rate-hike period) as a sanity check.
+- **Deliverables:** Baseline Gaussian HMM (Baum-Welch + Viterbi), model selection via BIC, a `regime_history` table, and an evaluation notebook. Historical stress-period comparisons (e.g., March 2020 and the 2022 rate-hike period) are qualitative diagnostics, not labelled ground truth.
 - **Possible blockers:** EM converging to a degenerate solution (one state absorbing everything); unstable state count selection.
-- **Validation:** Regimes visually align with known historical stress periods; log-likelihood improves over a naive single-state baseline.
-- **Exit criteria:** Model is deterministic given a fixed seed, serialized, and served via a `/regime/current` endpoint.
+- **Validation:** Held-out rolling-origin predictive log-likelihood improves over a one-state baseline; results are stable across documented initializations; state probabilities and occupancy are reported. Visual event alignment is supplementary only.
+- **Exit criteria:** Model is deterministic given a fixed seed, serialized, and writes versioned, queryable regime probabilities. HTTP serving is deferred to Stage 10.
 
 ### Stage 4 **[P]** — Representation Learning
-- **Purpose:** Learn embeddings/forecasts from time series (LSTM/Transformer) to feed the forecast layer.
+- **Purpose:** Evaluate learned time-series representations and, where a supervised head is defined, forecasts that feed the forecast layer.
 - **Dependencies:** Stage 2 (can run in parallel with Stage 3 — they share only feature inputs, not outputs).
-- **Deliverables:** Training pipeline, model checkpoint, offline evaluation report (MSE/MAE/directional accuracy vs. naive baseline).
+- **Deliverables:** Training pipeline, model checkpoint, and separate offline evaluations for the actual task: MSE/MAE/directional accuracy versus naive and linear baselines for forecasts; task-specific probes or downstream ablations for embeddings.
 - **Possible blockers:** Overfitting on limited financial history; non-stationarity causing train/test performance gap.
-- **Validation:** Must beat a naive persistence baseline out-of-sample; walk-forward (not random) train/test split.
-- **Exit criteria:** Model artifact versioned, reproducible from config, and beats baseline on held-out walk-forward folds.
+- **Validation:** Use rolling-origin evaluation, never random time-series splits. A forecasting model must beat naive persistence and a simple linear baseline out of sample; an embedding model must improve a predeclared downstream task over raw-feature and simple-dimensionality-reduction baselines.
+- **Exit criteria:** The artifact is versioned and reproducible from config, and its predeclared task beats the relevant baselines on held-out rolling-origin folds. No architecture is promoted merely because it is newer or more complex.
 
 ### Stage 5 — Monte Carlo Simulation
 - **Purpose:** Generate forward-looking scenario distributions for portfolio and risk modules.
-- **Dependencies:** Stage 3 and Stage 4 outputs (regime-conditioned parameters improve simulation realism, though a regime-agnostic version can be built as a fallback).
+- **Dependencies:** Stage 2. Stage 3 regime probabilities and Stage 4 forecasts are optional conditioning inputs, not prerequisites for a regime-agnostic baseline.
 - **Deliverables:** Simulation engine (GBM baseline, regime-conditioned parameter switching), variance reduction (antithetic variates at minimum), a scenario-output store.
 - **Possible blockers:** Runtime blow-up with naive Python loops; incorrect correlation structure in multi-asset simulation.
 - **Validation:** Simulated moments (mean, vol) converge to input parameters as path count increases; correlation of simulated paths matches historical correlation matrix within tolerance.
@@ -180,7 +181,7 @@ This is the exact sequence developers should follow. Each stage lists what "done
 
 ### Stage 6 — Convex Portfolio Optimization
 - **Purpose:** Convert forecasts + risk estimates into portfolio weights.
-- **Dependencies:** Stage 5 (and optionally Stage 3 for regime-conditioned risk aversion).
+- **Dependencies:** Stage 2 risk estimates plus an expected-return policy (historical/neutral baseline or Stage 4 forecast). Stage 5 scenarios and Stage 3 regime probabilities are optional inputs.
 - **Deliverables:** CVXPY-based optimizer (mean-variance baseline, then constraints: no-short, position limits, turnover/transaction-cost penalty), unit tests against a hand-computable 2–3 asset closed-form solution.
 - **Possible blockers:** Infeasible constraint sets (solver returns no solution); numerically unstable covariance matrices requiring shrinkage.
 - **Validation:** Solver status is checked and logged on every call (never silently accept a non-optimal status); output weights sum to 1 (or to the intended leverage) within floating-point tolerance.
@@ -188,7 +189,7 @@ This is the exact sequence developers should follow. Each stage lists what "done
 
 ### Stage 7 — Risk Management Engine
 - **Purpose:** Independent check on proposed portfolios/trades — VaR/CVaR, exposure limits, drawdown circuit breakers.
-- **Dependencies:** Stage 5 (uses Monte Carlo output), Stage 6 (validates its output).
+- **Dependencies:** Stage 6 (validates its output) and a shared return/risk estimation contract. Stage 5 scenarios are optional for Monte Carlo VaR/CVaR, not required for historical or parametric baselines.
 - **Deliverables:** VaR/CVaR calculator, limit-checking service, a "kill switch" that can block execution if breached.
 - **Possible blockers:** Risk engine and optimizer disagreeing on covariance assumptions (must share one estimation source).
 - **Validation:** Backtested VaR breach frequency matches the stated confidence level (e.g., ~5% breach rate for 95% VaR) — this is a real statistical test, not a visual check.
@@ -207,7 +208,7 @@ This is the exact sequence developers should follow. Each stage lists what "done
 - **Dependencies:** Conceptually needed from Stage 3 onward (each module's exit criteria references backtesting); this stage is where it becomes a first-class, reusable harness rather than ad-hoc notebooks.
 - **Deliverables:** Rolling-window train/validate/test harness, performance report generator (Sharpe, Sortino, max drawdown, turnover), leakage-detection tests.
 - **Possible blockers:** Subtle look-ahead bias reappearing when modules are chained together (each module might be leakage-free in isolation but not in combination).
-- **Validation:** A "shuffle test" — randomly shuffling regime labels should destroy performance; if it doesn't, the regime signal isn't actually being used.
+- **Validation:** A predeclared regime-label permutation test should materially degrade a regime-dependent strategy if the implementation uses the signal. This is a sensitivity diagnostic, not proof of predictive or causal value; it complements untouched out-of-sample evaluation and multiple-testing controls.
 - **Exit criteria:** Full pipeline (data → regime → forecast → MC → optimize → risk → execute) runs walk-forward over the full history without manual intervention.
 
 ### Stage 10 — FastAPI Microservices Layer
@@ -246,9 +247,9 @@ This is the exact sequence developers should follow. Each stage lists what "done
 | Feature Engineering | Data Pipeline | — |
 | Regime Detection (HMM) | Feature Engineering | — |
 | Representation Learning | Feature Engineering | — |
-| Monte Carlo | Feature Engineering | Regime Detection (for regime-conditioned parameters) |
-| Portfolio Optimization | Monte Carlo | Regime Detection (for regime-based risk aversion) |
-| Risk Engine | Monte Carlo, Portfolio Optimization | — |
+| Monte Carlo | Feature Engineering | Regime Detection and Representation Learning (conditioning inputs) |
+| Portfolio Optimization | Feature Engineering + expected-return/risk-estimate contract | Monte Carlo scenarios; Regime Detection (risk aversion) |
+| Risk Engine | Portfolio Optimization + shared return/risk-estimate contract | Monte Carlo scenarios |
 | Execution Engine | Portfolio Optimization, Risk Engine | Representation Learning (for volume prediction) |
 | Backtesting Harness | All of the above, chained | — |
 | FastAPI Layer | Whatever module it wraps | — |
@@ -288,8 +289,8 @@ Regime Detection and Representation Learning share only an input (the feature ta
 ### 5.2 Feature Engineering
 - **Purpose:** Compute the model-ready feature set from raw prices.
 - **Inputs:** OHLCV table.
-- **Outputs:** Feature table (returns, realized vol, rolling correlation, momentum, macro joins).
-- **Algorithms:** Rolling-window statistics; realized covariance estimators.
+- **Outputs:** Feature table (returns, rolling annualized volatility, rolling correlation, momentum, and point-in-time macro joins only if canonical macro data exists).
+- **Algorithms:** Rolling-window statistics on daily observations. Reserve “realized covariance” for estimators built from intraday returns; the cited Bucci–Ciciretti study uses monthly realized covariance matrices derived from higher-frequency futures data and does not justify relabelling daily close-to-close sample covariance.
 - **Libraries:** `pandas`/`polars`, `numpy`, `ta-lib` or hand-rolled indicators.
 - **Data structures:** Wide or long feature table, versioned by a feature-definition hash.
 - **Alternatives:** `polars` over `pandas` for large universes (columnar, faster rolling ops).
@@ -303,12 +304,12 @@ Regime Detection and Representation Learning share only an input (the feature ta
 - **Purpose:** Learn compressed, predictive embeddings of financial time series.
 - **Inputs:** Feature table (windowed sequences).
 - **Outputs:** Embeddings and/or point forecasts, model checkpoint.
-- **Algorithms:** LSTM baseline → attention/Transformer variant → optionally contrastive pretraining for embeddings.
+- **Algorithms:** Naive and linear baselines first, then comparable LSTM, attention/Transformer, or other sequence candidates; optionally contrastive pretraining for embeddings. The 2026 large-scale benchmark reports architecture- and metric-dependent rankings (including a VSN-LSTM hybrid with the highest overall Sharpe), so it does not support a universal “Transformer is better” progression.
 - **Libraries:** `PyTorch`, `pytorch-lightning` (optional), `numpy`.
 - **Data structures:** Sliding-window tensors `(batch, sequence_length, n_features)`.
 - **Alternatives:** Gradient-boosted trees (LightGBM) as a strong, cheaper-to-tune baseline before committing to deep learning.
 - **Expected runtime:** Minutes to hours per training run on a single GPU/CPU depending on universe size and sequence length.
-- **Testing strategy:** Beat a naive persistence baseline out-of-sample; walk-forward validation, never random shuffling of time-ordered data.
+- **Testing strategy:** Beat naive persistence and a simple linear baseline out of sample using rolling-origin evaluation. Purge training observations whose forward label intervals overlap validation/test intervals; add an embargo only where the documented label horizon or residual dependence warrants it.
 - **Common implementation mistakes:** Random train/test splits on time series (catastrophic leakage); not scaling/normalizing per-fold (using global statistics leaks future information).
 - **Performance considerations:** Batch size vs. sequence length tradeoffs; mixed precision training if on GPU.
 - **Future improvements:** Joint-embedding predictive architectures (self-supervised pretraining) once supervised baseline is solid.
@@ -320,7 +321,7 @@ Regime Detection and Representation Learning share only an input (the feature ta
 - **Algorithms:** Gaussian HMM (Baum-Welch/EM + Viterbi); optional non-normal emissions for fat tails.
 - **Libraries:** `hmmlearn`, or a custom implementation in `numpy`/`PyTorch` for more control over emission distributions.
 - **Data structures:** State sequence array, transition matrix, emission parameters per state.
-- **Alternatives:** Gaussian Mixture Models (no temporal structure — simpler, weaker); regime detection via unsupervised clustering (k-means on rolling vol/correlation).
+- **Alternatives:** Gaussian Mixture Models or clustering have no Markov transition structure; treat them as different baselines, not categorically “weaker.” Bucci–Ciciretti, for example, compares hierarchical clustering with a nonlinear VLSTAR model on realized covariance matrices and reports VLSTAR as best for that study.
 - **Expected runtime:** Seconds to low minutes for EM convergence on a multi-year daily dataset.
 - **Testing strategy:** Multiple-restart EM to avoid local optima; regime timeline sanity-checked against known historical stress events; BIC-based state-count selection tested across a range (2–5 states).
 - **Common implementation mistakes:** Choosing state count by eyeballing instead of BIC/AIC; not detecting label-switching between retrainings (state 0 today might correspond to state 1 last month).
@@ -343,7 +344,7 @@ Regime Detection and Representation Learning share only an input (the feature ta
 
 ### 5.6 Portfolio Optimization (CVXPY)
 - **Purpose:** Convert forecasts and risk estimates into implementable portfolio weights.
-- **Inputs:** Expected returns, covariance matrix (from Monte Carlo/historical estimation), constraints.
+- **Inputs:** Expected returns, a positive-semidefinite covariance/risk model estimated from point-in-time data, current holdings, costs, and constraints. Monte Carlo is one optional estimator/scenario source, not a requirement of Markowitz optimization.
 - **Outputs:** Target weight vector.
 - **Algorithms:** Mean-variance optimization (QP); extensions for turnover penalty, position limits, risk parity as an alternative objective.
 - **Libraries:** `cvxpy`, `numpy`.
@@ -359,7 +360,7 @@ Regime Detection and Representation Learning share only an input (the feature ta
 - **Purpose:** Translate target weights into child orders with minimized market impact.
 - **Inputs:** Target weights (from optimizer), current positions, volume/liquidity data.
 - **Outputs:** Simulated (or live) order schedule and fills.
-- **Algorithms:** VWAP order slicing, TWAP fallback, Almgren-Chriss-style impact modeling.
+- **Algorithms:** VWAP order slicing and a TWAP fallback as scheduling baselines; separately, an Almgren–Chriss implementation-shortfall model that trades expected temporary/permanent impact against price-volatility risk. Almgren–Chriss does not define VWAP slicing.
 - **Libraries:** `numpy`/`pandas` for scheduling logic; a custom slippage model.
 - **Data structures:** Order schedule (child orders with target time/size), fill log.
 - **Alternatives:** TWAP-only for simplicity if volume prediction proves unreliable.
@@ -479,18 +480,18 @@ Regime Detection and Representation Learning share only an input (the feature ta
 
 | Module | Essential | Recommended | Advanced |
 |---|---|---|---|
-| Regime Detection | Hamilton (1989) — Markov-switching foundation | Mamon & Elliott (2014) — HMM applications in finance | Autoencoder-Transformer-RL regime-aware prediction (2026 preprint) |
-| Representation Learning | — | Deep Learning for Financial Time Series survey | Fin-JEPA joint-embedding predictive architecture (2026); Contrastive asset embeddings (2024) |
+| Regime Detection | Hamilton (1989) — Markov-switching foundation | Mamon & Elliott (2014) — HMM applications in finance; Bucci & Ciciretti (2022) — realized-covariance regime comparison | Autoencoder-Transformer-RL regime-aware prediction (2026 preprint; exploratory, not a baseline replacement) |
+| Representation Learning | Naive/linear task baselines | Contrastive asset embeddings (Dolphin et al., 2024) | Fin-JEPA (2026 preprint) and architecture benchmarking (Saly-Kaufmann et al., 2026 preprint), both requiring independent replication on the AegisQuant universe |
 | Portfolio Optimization | Markowitz (1952) — mean-variance foundation | Diamond & Boyd (2016) — CVXPY | Portfolio optimization of even moments via power cone programming (2026) |
 | Convex Optimization | Boyd & Vandenberghe (2004) — Convex Optimization textbook | Multi-period trading via convex optimization (Stanford) | Differentiable convex optimization layers (BPQP, 2024 preprint) |
-| Monte Carlo | — | Monte Carlo simulations for portfolio uncertainty (2025) | Regime-conditioned / quasi-Monte Carlo variants |
+| Monte Carlo | Standard stochastic-process and variance-reduction references | Distribution-specific validation and portfolio uncertainty studies | Regime-conditioned / quasi-Monte Carlo variants |
 | Execution | Almgren & Chriss (2001) — optimal execution | VWAP/TWAP mechanics overviews | Deep learning for VWAP execution (2025); RL for trade execution |
-| Risk Management | — | Risk management in quantitative finance overviews | Real-time deep-learning risk modeling (2026) |
+| Risk Management | Historical and parametric VaR/expected-shortfall references | Machine Learning for Financial Risk Management survey (Mashrur et al., 2020) | Real-time deep-learning risk modeling (2025 publication record; exploratory) |
 | Financial ML (general) | Lopez de Prado (2018) — Advances in Financial Machine Learning | — | — |
 | Multi-Agent Systems | — | Multi-agent systems for computational economics and finance | LLM-based multi-agent market simulation survey (2026) |
-| MLOps / Production | — | MLOps in finance strategy guides | Multi-cloud fault-tolerant MLOps architecture (2026) |
+| MLOps / Production | Reproducibility, lineage, and deployment controls | MLOps in finance strategy guides | Multi-cloud fault-tolerant MLOps architecture (2025 publication record; independently verify before adoption) |
 
-**Why each matters, in one line:** Hamilton (1989) is cited in nearly every regime-detection paper since — skipping it means missing the vocabulary the rest of the literature assumes. Markowitz (1952) and Boyd & Vandenberghe (2004) are the same relationship one level down in the optimization module — everything CVXPY-related assumes this foundation. Lopez de Prado (2018) matters less for any single equation and more because it is the only source in this list written specifically to warn practitioners about the failure modes (leakage, overfitting, non-stationarity) that will otherwise sink this exact kind of project.
+**How to use this map:** Foundational works define the model class; they do not validate AegisQuant's implementation or guarantee economic value. Preprints and practitioner sources are hypothesis-generating evidence until replicated. Hamilton motivates latent-state models; Markowitz and Boyd/Vandenberghe define optimization foundations; López de Prado and Kelly/Xiu emphasize validation and financial-ML failure modes. Every promoted method still needs point-in-time, out-of-sample evidence on the project's own data.
 
 ---
 
@@ -498,17 +499,17 @@ Regime Detection and Representation Learning share only an input (the feature ta
 
 **Why FastAPI instead of Flask?** FastAPI gives you Pydantic-validated request/response schemas and auto-generated OpenAPI docs for free — for a system with this many inter-module contracts, schema validation at the boundary catches integration bugs immediately instead of as a silent `KeyError` three modules downstream. Flask requires bolting this on manually (e.g., via Marshmallow). FastAPI's async support also matters if any endpoint ends up calling a slow external data vendor.
 
-**Why PyTorch instead of TensorFlow?** PyTorch's imperative execution model makes debugging a custom HMM-adjacent or attention architecture far more transparent (you can `print()`/breakpoint mid-forward-pass). Most recent financial deep learning research (including the papers cited in this document) ships PyTorch reference implementations, reducing translation overhead.
+**Why PyTorch instead of TensorFlow?** PyTorch is the selected implementation framework because its eager execution and ecosystem are suitable for custom sequence experiments. This is an engineering choice, not a research finding or evidence that a PyTorch model will outperform simpler baselines.
 
 **Why PostgreSQL?** Relational integrity (foreign keys between `tickers`, `features`, `regime_history`, `portfolio_weights`) matters more here than raw write throughput. TimescaleDB (a Postgres extension) can be added later for time series-specific optimizations without a database migration to a different engine.
 
-**Why CVXPY?** It expresses convex portfolio problems (QP, SOCP) in near-mathematical syntax, and swapping the underlying solver (ECOS, OSQP, SCS) requires no rewrite of the problem — useful when the problem size or constraint types change as the project matures.
+**Why CVXPY?** It expresses disciplined convex portfolio problems in near-mathematical syntax and canonicalizes them for compatible solvers. Solver substitution is conditional on the cones, mixed-integer requirements, and numerical tolerances a formulation uses; solver status and residuals must be checked after every solve.
 
 **Why Docker?** Reproducibility of the entire stack (Postgres version, Python version, system libraries for numerical code) across the developer's machine, CI, and any deployment target — this matters more here than in most student projects because subtle numerical library version differences (BLAS backends, etc.) can change model outputs.
 
-**Why HMM (over pure deep learning for regime detection)?** Interpretability and data efficiency. HMM states have a clear probabilistic meaning and can be fit on years, not decades, of daily data — deep generative alternatives typically need far more data than a single-market FYP dataset provides. HMM is the right starting point; deep-learning-augmented emissions are the documented upgrade path once the baseline is validated.
+**Why HMM (over pure deep learning for regime detection)?** An HMM is a compact, inspectable latent-state baseline with explicit transition and emission assumptions. Its state labels are not inherently economically meaningful and remain subject to initialization, specification, and label-switching risk. More complex emissions are candidates only after held-out evidence shows the baseline assumptions are inadequate.
 
-**Why Monte Carlo (over purely analytical risk formulas)?** Closed-form VaR under normality is fast but wrong in the tails — the entire premise of this project (regime-awareness) is that the distribution of returns changes shape across regimes, which Monte Carlo can represent and a single closed-form Gaussian formula cannot.
+**Why Monte Carlo (alongside analytical and historical risk formulas)?** Simulation supports path-dependent scenarios and distributions without convenient closed forms. Monte Carlo does not repair a misspecified return process: a Gaussian simulation retains Gaussian tail assumptions regardless of path count. Historical, parametric, and simulated risk estimates must be compared and backtested under their documented assumptions.
 
 **Why Flutter?** Single codebase for a cross-platform dashboard (useful if the FYP demo needs to run on both a laptop and a phone), and its widget-based reactive model maps cleanly onto "redraw this chart when the FastAPI polling endpoint returns new data."
 
@@ -747,8 +748,8 @@ Organized by category. Each item includes the fix, not just the symptom.
 54. **Filling orders at the historical close price with no market impact modeling at all.**
 55. **Not modeling partial fills** or the possibility that a large order simply cannot be fully executed at the assumed price.
 56. **Backtesting on the same data used to select the strategy's hyperparameters** (implicit overfitting through repeated peeking).
-57. **Using k-fold cross-validation on time series** instead of walk-forward validation.
-58. **Not running the shuffle test** to confirm the regime signal is actually contributing to performance.
+57. **Using randomly shuffled k-fold cross-validation on time series.** Prefer rolling-origin evaluation; when forward-label intervals overlap fold boundaries, purge the overlap and use a justified embargo rather than applying either mechanically.
+58. **Not running a predeclared permutation test** to check whether the implementation is sensitive to the regime signal, or misreporting that diagnostic as proof of economic value.
 59. **Silently allowing look-ahead bias to reappear when modules are chained**, even if each module passed its individual leakage test.
 60. **Not accounting for survivorship bias in the backtest universe** (see item 2, but specifically relevant again at the backtest report stage).
 61. **Reporting a single backtest run's Sharpe ratio without any measure of estimation uncertainty.**
@@ -829,7 +830,7 @@ One-year timeline, organized into seven phases that mirror the build order in Se
 | 11 | Read Jalen & Mamon (2014) on non-normal emissions | Extend HMM to non-Gaussian emissions | Compare log-likelihood vs. Gaussian baseline | Non-normal emission model outperforms baseline |
 | 12 | Research feature selection for HMMs | Implement feature curation for emission set | Multiple-restart EM test for local optima | Stable, reproducible HMM given fixed seed |
 | 13 | Study label-switching problem | Build `regime_history` table + versioning | Regression test for label-switching detection | Regime output stored and queryable |
-| 14 | Review FastAPI basics | Wrap regime detector in a minimal `/regime/current` endpoint | Contract test for endpoint schema | First working microservice |
+| 14 | Review stable module-contract design | Freeze the callable regime interface and persisted schema | Contract test for internal inputs/outputs | Regime module contract ready for Stage 10 serving |
 | 15 | Buffer / refine regime module based on supervisor feedback | Address feedback; polish evaluation notebook | Update data dictionary with regime schema | Supervisor checkpoint review |
 | 16 | Consolidate learnings | Freeze regime detection module API | Write "Regime Detection" section of final report (draft) | **Milestone: Stage 3 complete** |
 
@@ -837,9 +838,9 @@ One-year timeline, organized into seven phases that mirror the build order in Se
 
 | Week | Learning / Research Objective | Development Objective | Documentation / Testing Objective | Milestone |
 |---|---|---|---|---|
-| 17 | Review LSTM architecture and backprop-through-time | Implement LSTM baseline training pipeline | Walk-forward split validation harness (shared with Phase 4) | LSTM baseline trains without divergence |
-| 18 | Study attention/Transformer basics | Add naive-persistence baseline comparison | Out-of-sample MSE/MAE report | LSTM beats naive baseline |
-| 19 | Read the large-scale DL financial time series benchmark paper | Experiment with Transformer variant | Ablation notes (what changed performance) | Initial Transformer results logged |
+| 17 | Review linear/LSTM sequence forecasting | Implement naive, linear, and LSTM training baselines | Rolling-origin validation harness (shared with Phase 4) | Baselines train reproducibly without divergence |
+| 18 | Study label-horizon overlap and baseline design | Compare all forecasting baselines | Out-of-sample MSE/MAE/directional report | Promotion criterion decided from held-out evidence |
+| 19 | Read the large-scale DL financial time-series benchmark paper | Experiment with a justified sequence variant (e.g., Transformer or VSN hybrid) | Metric, seed, cost, and architecture ablations | Candidate results logged without assuming superiority |
 | 20 | Study contrastive learning for embeddings (optional stretch) | Model checkpointing + config-based reproducibility | Reproducibility test (rerun from config matches) | Versioned model artifact system in place |
 | 21 | Study Brownian motion / GBM simulation basics | Implement vectorized GBM Monte Carlo engine | Convergence test (simulated vs. true moments) | MC engine passes convergence test |
 | 22 | Study variance reduction techniques | Add antithetic variates; multi-asset correlation via Cholesky | Correlation-preservation test | Multi-asset correlated simulation validated |
@@ -863,11 +864,11 @@ One-year timeline, organized into seven phases that mirror the build order in Se
 
 | Week | Learning / Research Objective | Development Objective | Documentation / Testing Objective | Milestone |
 |---|---|---|---|---|
-| 33 | Read Almgren & Chriss (2001) | Implement VWAP order-slicing baseline | Unit test volume-curve slicing logic | Baseline VWAP scheduler working |
-| 34 | Study slippage/market-impact models | Implement slippage model with realistic parameters | Compare implementation shortfall to published benchmark ranges | Slippage model within plausible range |
+| 33 | Study VWAP/TWAP scheduling references | Implement VWAP order-slicing and TWAP fallback baselines | Unit-test volume-curve and equal-time slicing | Baseline schedulers working |
+| 34 | Read Almgren & Chriss (2001); study implementation shortfall | Implement temporary/permanent impact plus volatility-risk model | Verify impact/risk trade-off and compare calibrated shortfall ranges | Impact model behaves consistently with its assumptions |
 | 35 | Study implementation shortfall methodology | Build paper-trading simulator | End-to-end test: weights → orders → simulated fills | Paper-trading simulation runs fully |
 | 36 | Review walk-forward validation methodology deeply | Build reusable walk-forward harness | Leakage-audit checklist run across full chain | Harness produces a clean walk-forward report |
-| 37 | Study the shuffle-test methodology | Implement shuffle test on regime signal | Confirm performance degrades under shuffle | Shuffle test passes (signal proven to matter) |
+| 37 | Study permutation tests and multiple-testing bias | Implement a predeclared regime-signal permutation test | Confirm expected sensitivity and report uncertainty | Diagnostic passes without claiming causal proof |
 | 38 | Study crisis-period stress testing | Run full pipeline through 2020, 2022 windows | Stress-test report | Risk engine behaves correctly in stress windows |
 | 39 | Buffer / debug integration leakage issues | Fix any cross-module leakage found in chained backtest | Update leakage-audit documentation | Full pipeline passes end-to-end walk-forward |
 | 40 | Consolidate | Freeze backtesting harness | Write "Execution Engine" and "Backtesting" sections (draft) | **Milestone: Stages 8–9 complete** |
@@ -897,16 +898,61 @@ One-year timeline, organized into seven phases that mirror the build order in Se
 
 ---
 
-## 18. Final Architecture Review
+## 18. Research Evidence Corrections (September 2026 Audit)
+
+The research library is an index, not evidence by itself. Architecture or methodology claims must
+trace to an identifiable primary paper, publisher record, or authoritative project page. Entries
+marked incomplete or unverified may motivate a search but must not justify implementation until the
+exact work and metadata are resolved.
+
+The following sources directly support the corrections incorporated above:
+
+- [Hamilton (1989)](https://doi.org/10.2307/1912559) establishes a latent Markov-switching model for
+  changes in U.S. business-cycle growth; it does not mandate AegisQuant's downstream software design.
+- [Bucci and Ciciretti](https://arxiv.org/abs/2104.03667) operate on monthly realized covariance
+  matrices derived from higher-frequency futures information and compare hierarchical clustering
+  with VLSTAR. Their results do not establish HMMs as universally superior or turn daily sample
+  covariance into a realized-covariance estimator.
+- [Saly-Kaufmann et al. (2026)](https://arxiv.org/abs/2603.01820) benchmark multiple model families
+  on daily futures from 2010-2025. Rankings vary by metric; a VSN-LSTM hybrid leads overall Sharpe,
+  while other architectures lead downside or transaction-cost measures. This is evidence for
+  comparative baselines and ablations, not automatic Transformer promotion or direct generalization
+  to AegisQuant's ETF universe.
+- [Dolphin, Smyth, and Dong (2024)](https://arxiv.org/abs/2407.18645) evaluate contrastive asset
+  embeddings on industry classification and portfolio optimization. Forecast accuracy is a separate
+  claim requiring a forecasting head and its own evaluation.
+- [Markowitz (1952)](https://doi.org/10.1111/j.1540-6261.1952.tb01525.x) formulates portfolio choice
+  from expected returns and return covariance. Monte Carlo scenarios are therefore optional inputs,
+  not a mathematical prerequisite for mean-variance optimization.
+- [Boyd et al. (2017)](https://stanford.edu/~boyd/papers/cvx_portfolio.html) explicitly separates
+  portfolio optimization from how forecasts are produced and models expected return, risk, costs,
+  and constraints together. [CVXPY](https://www.jmlr.org/papers/v17/15-408.html) is a modeling
+  language for convex programs, not evidence that every proposed portfolio objective is convex.
+- [Almgren and Chriss (2001)](https://doi.org/10.21314/JOR.2001.041) optimize an
+  implementation-shortfall trade-off between impact cost and volatility risk; this is distinct from
+  following a historical VWAP volume curve.
+- [Kelly and Xiu (2023)](https://www.nber.org/papers/w31502) survey financial ML rather than validate
+  one mandatory architecture. Model choice must remain an empirical, out-of-sample decision.
+- [López de Prado (2018)](https://www.wiley.com/en-us/Advances+in+Financial+Machine+Learning-p-9781119482086)
+  motivates purging observations whose label intervals overlap test data and embargoing where needed.
+  These controls address specific information overlap; a fixed embargo at every module boundary is
+  not a substitute for defining each sample's information set.
+- [López de Prado (2018, multiple-testing note)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3177057)
+  documents selection bias from trying many strategies and supports reporting deflated or otherwise
+  multiple-testing-aware performance statistics rather than a lone best Sharpe ratio.
+
+---
+
+## 19. Final Architecture Review
 
 ### As a Quant Researcher
-The architecture correctly treats regime detection as a structural, upstream signal rather than a bolted-on feature — this is the right call and matches how the literature (Hamilton onward) actually frames the problem. My concern is estimation risk: every downstream module (Monte Carlo, portfolio optimization, risk) trusts covariance and regime estimates that are themselves noisy, and nothing in the current design explicitly propagates that uncertainty forward. A student version of this system will likely report a single point-estimate Sharpe ratio with no sense of how much that number would move under parameter uncertainty. **Improvement:** add a lightweight uncertainty-propagation step — even something as simple as re-running the backtest across a handful of covariance-shrinkage intensities and reporting the resulting Sharpe ratio range — before presenting any single headline number.
+The architecture chooses to treat regime detection as a structural upstream signal rather than a bolted-on feature. Hamilton (1989) supports latent Markov-switching dynamics, but does not prescribe this software architecture; the design must earn its value out of sample. My concern is estimation risk: downstream modules use covariance and regime estimates that are themselves noisy. **Improvement:** propagate uncertainty with sensitivity analysis or resampling, and report confidence intervals plus multiple-testing-aware statistics rather than a single point-estimate Sharpe ratio.
 
 ### As a Software Architect
 The module boundaries are clean and the dependency graph (Section 4) is genuinely enforceable through the folder structure (Section 9) — that 1:1 mapping is a real strength and will save the team from the tangled-import problem that sinks most student systems of this scope. My concern is the two-pattern communication model (REST + shared Postgres tables): it's simple, which is good, but shared-table communication is an implicit contract that's easy to violate silently (a schema change in `features` breaks two downstream readers without either raising an error at write time). **Improvement:** add lightweight schema validation (e.g., a Pydantic model or `pandera` schema) at every shared-table write, not just at REST boundaries, so a schema break fails loudly and immediately rather than three modules downstream.
 
 ### As an ML Engineer
-The build order correctly sequences a classical HMM baseline before the deep-learning-augmented regime model, and correctly demands the LSTM beat a naive persistence baseline before anything fancier is attempted — this discipline is exactly what prevents the common failure mode of "impressive-sounding model, worse than doing nothing." My concern is that walk-forward validation, while specified, is easy to get subtly wrong when modules are chained (Section 16, item 59) — leakage that doesn't exist in any single module's isolated test can appear once regime detection, representation learning, and the optimizer are all retrained on the same rolling window. **Improvement:** the shuffle test (Stage 9) is good but insufficient alone; add a second check — an explicit "embargo" period between train and test windows at every stage boundary, following Lopez de Prado's purged/embargoed cross-validation approach, to close this specific gap.
+The build order correctly sequences simple baselines before more complex models. Walk-forward validation can still leak when forward label intervals cross fold boundaries. **Improvement:** record each sample's label-information interval, purge training samples that overlap validation/test intervals, and add an embargo only where the horizon or measured dependence justifies one. A permutation test is complementary and cannot replace untouched out-of-sample evaluation.
 
 ### As a DevOps Engineer
 Docker-first, CI-gated, migration-managed from day one is the right baseline discipline, and the explicit choice to skip Kubernetes at this scale is sensible rather than resume-driven over-engineering. My concern is that monitoring (Section 12) is specified as a minimum viable cron-based health check, which is fine for a demo but will not catch the kind of slow-burn failure mode most likely to actually occur in this system — e.g., a regime detector that keeps running but silently degrades in quality after a data schema change upstream. **Improvement:** add at least one *statistical* monitor, not just an uptime check — e.g., alert if the regime distribution over the last 30 days looks implausible (one state disappearing entirely, or transition frequency spiking) — because this is the class of failure that a simple health check will never catch.
@@ -917,10 +963,10 @@ This is an ambitious scope for a Final Year Project — thirteen modules, a full
 ### Summary of Cross-Cutting Recommendations
 1. Propagate estimation uncertainty forward, not just point estimates (Quant Researcher).
 2. Validate shared-table contracts as strictly as REST contracts (Architect).
-3. Add embargo periods to walk-forward validation, not just the shuffle test (ML Engineer).
+3. Purge overlapping label intervals and use justified, documented embargoes; do not apply a fixed embargo mechanically (ML Engineer).
 4. Add at least one statistical/behavioral monitor, not only uptime checks (DevOps).
 5. If timeline pressure hits, protect validation rigor over feature breadth (Supervisor).
 
 ---
 
-*End of AegisQuant Master Development Blueprint v1.0.*
+*End of AegisQuant Master Development Blueprint v1.1.*

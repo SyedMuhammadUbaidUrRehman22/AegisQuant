@@ -3,9 +3,15 @@
 from feature_engineering.features.price import (
     log_return,
     momentum,
-    realized_volatility,
+    rolling_annualized_volatility,
     rolling_correlation,
     simple_return,
 )
 
-__all__ = ["log_return", "momentum", "realized_volatility", "rolling_correlation", "simple_return"]
+__all__ = [
+    "log_return",
+    "momentum",
+    "rolling_annualized_volatility",
+    "rolling_correlation",
+    "simple_return",
+]

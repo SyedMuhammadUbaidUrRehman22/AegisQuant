@@ -1,10 +1,10 @@
 # AegisQuant
 
 AegisQuant is a regime-aware quantitative research and portfolio-management platform. The project
-has completed **Stage 1: Data Pipeline / Market Data Ingestion**. It provides a reproducible
-foundation and a versioned, audited daily OHLCV pipeline for the approved 20-ETF research universe.
-Feature engineering, models, portfolio logic, risk calculations, execution, backtests, agents, and
-dashboard functionality remain intentionally unimplemented.
+has implemented **Stages 0–2**: the reproducible foundation, a versioned and audited daily OHLCV
+pipeline for the approved 20-ETF research universe, and deterministic point-in-time feature
+engineering. Regime models, representation learning, portfolio logic, risk calculations, execution,
+backtests, agents, and dashboard functionality remain intentionally unimplemented.
 
 The authoritative architecture and build order are in
 [`docs/AegisQuant_Master_Development_Blueprint.md`](docs/AegisQuant_Master_Development_Blueprint.md).
@@ -126,9 +126,9 @@ service but required before any database connection is attempted.
 
 ## Database migrations
 
-Alembic migrations are under `infra/migrations/`. The Stage 1 revision creates instrument metadata,
-source mappings, ingestion audit records, canonical OHLCV, corporate actions, and converts OHLCV to
-a TimescaleDB hypertable. It intentionally creates no future-stage feature or model tables.
+Alembic migrations are under `infra/migrations/`. Stage 1 creates instrument metadata, source
+mappings, ingestion audit records, canonical OHLCV, corporate actions, and the TimescaleDB
+hypertable. Stage 2 adds the versioned `feature_values` table. No Stage 3+ model tables exist.
 
 With a database running, either set `AEGISQUANT_DATABASE_URL` to a full SQLAlchemy URL or export the
 individual database variables, then run:
@@ -171,6 +171,20 @@ python -m data_pipeline compare-second-source
 
 The canonical contract, table responsibilities, quality policy, and timestamp definitions are in
 [`docs/stage_1_data_dictionary.md`](docs/stage_1_data_dictionary.md).
+
+## Stage 2 feature materialization
+
+Stage 2 reads canonical `ohlcv_bars` only and materializes five versioned daily features: adjusted
+simple/log returns, 20-session rolling annualized volatility, 20-session momentum, and 60-session
+rolling correlation to SPY. Every run requires an explicit, timezone-aware cutoff:
+
+```bash
+python -m feature_engineering --as-of 2026-09-04T21:00:00Z
+```
+
+The command applies both bar-time and information-time cutoffs, records warm-up or undefined values
+explicitly, and writes in bounded transactional batches. Formulas and missing-data policies are in
+[`feature_engineering/README.md`](feature_engineering/README.md).
 
 ## Quality checks
 

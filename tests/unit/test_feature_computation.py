@@ -1,11 +1,12 @@
 """Point-in-time, alignment, and missing-state tests for feature computation."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
 
-from feature_engineering import compute_features
+from feature_engineering import FeatureObservation, compute_features
 
 
 def _bars(days: int = 65) -> pd.DataFrame:
@@ -69,3 +70,25 @@ def test_naive_as_of_and_duplicate_keys_are_rejected() -> None:
         compute_features(bars, as_of=datetime(2024, 1, 3))
     with pytest.raises(ValueError, match="duplicate"):
         compute_features(pd.concat((bars, bars.iloc[[0]])), as_of=datetime(2024, 1, 3, tzinfo=UTC))
+
+
+def test_observation_contract_rejects_leakage_and_inconsistent_values() -> None:
+    valid = FeatureObservation(
+        instrument_id=1,
+        feature_name="test",
+        feature_version=1,
+        definition_hash="a" * 64,
+        bar_end_at=datetime(2024, 1, 2, tzinfo=UTC),
+        feature_as_of=datetime(2024, 1, 2, tzinfo=UTC),
+        value=1.0,
+        missing_reason="available",
+    )
+
+    with pytest.raises(ValueError, match="later than"):
+        replace(valid, feature_as_of=datetime(2024, 1, 3, tzinfo=UTC))
+    with pytest.raises(ValueError, match="finite value"):
+        replace(valid, value=None)
+    with pytest.raises(ValueError, match="null value"):
+        replace(valid, missing_reason="undefined")
+    with pytest.raises(ValueError, match="unsupported"):
+        replace(valid, value=None, missing_reason="bad")  # type: ignore[arg-type]

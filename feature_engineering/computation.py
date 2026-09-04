@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
@@ -12,7 +14,7 @@ import pandas as pd
 from feature_engineering.features import (
     log_return,
     momentum,
-    realized_volatility,
+    rolling_annualized_volatility,
     rolling_correlation,
     simple_return,
 )
@@ -31,6 +33,28 @@ class FeatureObservation:
     feature_as_of: datetime
     value: float | None
     missing_reason: MissingReason
+
+    def __post_init__(self) -> None:
+        if self.instrument_id <= 0 or not self.feature_name or self.feature_version <= 0:
+            raise ValueError("feature identity fields must be nonempty and positive")
+        if re.fullmatch(r"[0-9a-f]{64}", self.definition_hash) is None:
+            raise ValueError("definition_hash must be a lowercase SHA-256 digest")
+        if self.bar_end_at.tzinfo is None or self.feature_as_of.tzinfo is None:
+            raise ValueError("feature timestamps must be timezone-aware")
+        if self.feature_as_of > self.bar_end_at:
+            raise ValueError("feature_as_of cannot be later than bar_end_at")
+        if self.missing_reason not in {
+            "available",
+            "insufficient_history",
+            "missing_input",
+            "undefined",
+        }:
+            raise ValueError("unsupported feature missing reason")
+        if self.missing_reason == "available":
+            if self.value is None or not math.isfinite(self.value):
+                raise ValueError("available observations require a finite value")
+        elif self.value is not None:
+            raise ValueError("unavailable observations must have a null value")
 
 
 REQUIRED_COLUMNS = {"instrument_id", "canonical_symbol", "bar_end_at", "adjusted_close", "volume"}
@@ -81,8 +105,8 @@ def compute_features(
                 values = simple_return(prices)
             elif definition.kind == "log_return":
                 values = log_return(prices)
-            elif definition.kind == "realized_volatility":
-                values = realized_volatility(
+            elif definition.kind == "rolling_annualized_volatility":
+                values = rolling_annualized_volatility(
                     prices,
                     window=definition.lookback_observations,
                     annualization_factor=definition.annualization_factor or 252,

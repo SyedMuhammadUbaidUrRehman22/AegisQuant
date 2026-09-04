@@ -12,17 +12,30 @@ from feature_engineering.computation import FeatureObservation
 from feature_engineering.registry import FeatureRegistry
 from feature_engineering.tables import feature_values
 
+DEFAULT_WRITE_BATCH_SIZE = 1_000
+
+
+def _batches[T](values: Sequence[T], size: int) -> tuple[Sequence[T], ...]:
+    if size < 1:
+        raise ValueError("batch size must be positive")
+    return tuple(values[offset : offset + size] for offset in range(0, len(values), size))
+
 
 class FeatureRepository:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def materialize(self, observations: Sequence[FeatureObservation]) -> int:
+    def materialize(
+        self,
+        observations: Sequence[FeatureObservation],
+        *,
+        batch_size: int = DEFAULT_WRITE_BATCH_SIZE,
+    ) -> int:
         """Upsert one deterministic value per full feature identity."""
 
         if not observations:
             return 0
-        rows = [
+        rows = tuple(
             {
                 "instrument_id": row.instrument_id,
                 "feature_name": row.feature_name,
@@ -34,26 +47,37 @@ class FeatureRepository:
                 "missing_reason": row.missing_reason,
             }
             for row in observations
-        ]
-        statement = pg_insert(feature_values).values(rows)
-        statement = statement.on_conflict_do_update(
-            index_elements=(
-                feature_values.c.instrument_id,
-                feature_values.c.feature_name,
-                feature_values.c.feature_version,
-                feature_values.c.definition_hash,
-                feature_values.c.bar_end_at,
-            ),
-            set_={
-                "feature_as_of": statement.excluded.feature_as_of,
-                "value": statement.excluded.value,
-                "missing_reason": statement.excluded.missing_reason,
-                "updated_at": func.now(),
-            },
         )
+        affected = 0
         with self._engine.begin() as connection:
-            result = connection.execute(statement)
-        return result.rowcount
+            for batch in _batches(rows, batch_size):
+                insert_statement = pg_insert(feature_values).values(batch)
+                statement = insert_statement.on_conflict_do_update(
+                    index_elements=(
+                        feature_values.c.instrument_id,
+                        feature_values.c.feature_name,
+                        feature_values.c.feature_version,
+                        feature_values.c.definition_hash,
+                        feature_values.c.bar_end_at,
+                    ),
+                    set_={
+                        "feature_as_of": insert_statement.excluded.feature_as_of,
+                        "value": insert_statement.excluded.value,
+                        "missing_reason": insert_statement.excluded.missing_reason,
+                        "updated_at": func.now(),
+                    },
+                    where=or_(
+                        feature_values.c.feature_as_of.is_distinct_from(
+                            insert_statement.excluded.feature_as_of
+                        ),
+                        feature_values.c.value.is_distinct_from(insert_statement.excluded.value),
+                        feature_values.c.missing_reason.is_distinct_from(
+                            insert_statement.excluded.missing_reason
+                        ),
+                    ),
+                )
+                affected += connection.execute(statement).rowcount
+        return affected
 
     def read_as_of(
         self, as_of: datetime, *, registry: FeatureRegistry | None = None

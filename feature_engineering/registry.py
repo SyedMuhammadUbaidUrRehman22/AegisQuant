@@ -10,12 +10,18 @@ from types import MappingProxyType
 from typing import Literal
 
 FeatureKind = Literal[
-    "simple_return", "log_return", "realized_volatility", "momentum", "rolling_correlation"
+    "simple_return",
+    "log_return",
+    "rolling_annualized_volatility",
+    "momentum",
+    "rolling_correlation",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class FeatureDefinition:
+    """Complete, hashable semantics for one versioned feature."""
+
     name: str
     version: int
     kind: FeatureKind
@@ -51,6 +57,8 @@ class FeatureDefinition:
 
     @property
     def definition_hash(self) -> str:
+        """Return a stable digest over every definition and parameter field."""
+
         payload = json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -93,9 +101,9 @@ DEFAULT_FEATURES = (
         point_in_time_safe=True,
     ),
     FeatureDefinition(
-        name="realized_volatility_20d",
+        name="rolling_annualized_volatility_20d",
         version=1,
-        kind="realized_volatility",
+        kind="rolling_annualized_volatility",
         input_fields=("adjusted_close",),
         lookback_observations=20,
         minimum_observations=21,
@@ -154,6 +162,8 @@ DEFAULT_FEATURES = (
 
 
 class FeatureRegistry:
+    """Read-only name-to-definition registry with duplicate protection."""
+
     def __init__(self, definitions: tuple[FeatureDefinition, ...] = DEFAULT_FEATURES) -> None:
         by_name = {definition.name: definition for definition in definitions}
         if len(by_name) != len(definitions):
@@ -161,10 +171,14 @@ class FeatureRegistry:
         self._definitions: Mapping[str, FeatureDefinition] = MappingProxyType(by_name)
 
     def get(self, name: str) -> FeatureDefinition:
+        """Resolve one definition by its stable feature name."""
+
         try:
             return self._definitions[name]
         except KeyError:
             raise KeyError(f"unknown feature: {name}") from None
 
     def all(self) -> tuple[FeatureDefinition, ...]:
+        """Return definitions in deterministic registration order."""
+
         return tuple(self._definitions.values())
