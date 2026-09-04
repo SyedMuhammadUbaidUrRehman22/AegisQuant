@@ -1449,3 +1449,61 @@ Dependencies changed: none. Storage and orchestration remain for Iteration 2.
   project-configured full mypy command is used for final validation. No source defect was involved.
 - Docker was not retried: the documented Docker Desktop socket failure is an external environment
   limitation and there is no new evidence of a changed environment.
+
+---
+
+## Stage 2 Iteration 2 - Canonical Access and Versioned Materialization
+
+**Date:** 2026-09-04
+**Objective:** Complete the blueprint-required Stage 2 persistence, orchestration, documentation,
+and point-in-time integration contract.
+
+### Requirements addressed and architecture
+
+Added a read-only canonical accessor restricted to completed Stage 1 daily bars, deterministic
+orchestration, and an idempotent PostgreSQL `feature_values` materialization repository. The table's
+primary key disambiguates instrument, name, version, definition hash (including parameters), and bar
+timestamp. A database check enforces `feature_as_of <= bar_end_at`; nullable values pair with an
+explicit `available`, `insufficient_history`, `missing_input`, or `undefined` state. Reads select only
+the active registry identity and apply both bar-time and information-time cutoffs.
+
+The feature README now records formulas, window/minimum-observation semantics, closure, listing,
+gap, constant-window, float conversion, scaling, and correction/rematerialization policies. No new
+storage technology, downloader, global normalization, API route logic, or Stage 3 functionality was
+added.
+
+### Files changed
+
+- `feature_engineering/{access.py,persistence.py,service.py,tables.py,README.md,registry.py}`
+- `infra/migrations/env.py`
+- `infra/migrations/versions/20260904_03_stage_2_features.py`
+- `tests/unit/test_feature_persistence.py`
+- `tests/integration/test_stage2_features.py`
+- `DEVELOPMENT_LOG.md`
+
+Dependencies changed: none. Migration chain: `20260904_02 -> 20260904_03`.
+
+### Validation and resolutions
+
+- **PASS** - Ruff format: `109 files` formatted after one formatting update.
+- **PASS** - Ruff lint: `All checks passed!`.
+- **PASS** - strict mypy: `Success: no issues found in 58 source files`.
+- **PASS** - full pytest: `73 passed, 8 skipped, 2 warnings in 8.20s`. The eight skips are
+  database-marked tests because no test/database URL is configured; the new Stage 2 database test is
+  therefore authored but not claimed as executed online.
+- **PASS** - Alembic head/history: one linear head, `20260904_03`.
+- **PASS** - offline PostgreSQL DDL renders the table, temporal/value constraints, foreign key,
+  composite primary key, and both query indexes.
+- **PASS** - `git diff --check` reports no whitespace errors.
+- **FAIL - MIGRATION REVIEW, RESOLVED** - initial offline DDL exposed doubled check-constraint name
+  prefixes from the metadata naming convention. Migration-local names were corrected and rerendered
+  to match `feature_engineering.tables` exactly.
+- **NOT RUN / ENVIRONMENT LIMITED** - online TimescaleDB migration and Stage 2 DB integration test.
+  No database URL is present. Docker was not retried because the known Docker Desktop/Compose socket
+  limitation is external and no new evidence indicates an environment change.
+
+### Remaining Stage 2 validation
+
+The deterministic source, mathematical, temporal-mutation, registry, migration-render, and full
+regression checks pass locally. Online PostgreSQL execution of the new integration test remains to
+be confirmed by CI or a changed local database environment; no local Docker success is claimed.

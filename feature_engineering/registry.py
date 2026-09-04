@@ -34,6 +34,10 @@ class FeatureDefinition:
     point_in_time_safe: bool
     benchmark_symbol: str | None = None
     annualization_factor: int | None = None
+    observation_timestamp: str = "canonical bar_end_at"
+    market_closure_policy: str = "no synthetic row; windows count observed sessions"
+    newly_listed_policy: str = "null with insufficient_history until minimum observations"
+    unexpected_gap_policy: str = "never fill; preserve the gap and reduce aligned history"
 
     def __post_init__(self) -> None:
         if not self.name or self.version < 1:

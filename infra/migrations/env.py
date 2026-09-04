@@ -10,6 +10,9 @@ from sqlalchemy import engine_from_config, pool
 
 from config.settings import get_settings
 from data_pipeline.schema.tables import metadata
+from feature_engineering import tables as feature_tables
+
+_ = feature_tables
 
 alembic_config = context.config
 
