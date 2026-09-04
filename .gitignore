@@ -38,3 +38,6 @@ backtesting/reports/*
 # Local database and logs
 postgres_data/
 *.log
+
+# Local assistant/session handoff notes
+session.md
