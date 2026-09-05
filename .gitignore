@@ -41,3 +41,4 @@ postgres_data/
 
 # Local assistant/session handoff notes
 session.md
+prompt.md
