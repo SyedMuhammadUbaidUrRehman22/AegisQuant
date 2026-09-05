@@ -1717,3 +1717,39 @@ quality-report, performance, and developer-environment gaps without entering Sta
 deterministic checks pass. The next action is to commit this increment, independently review that
 exact commit, run the database-enabled CI matrix, disposition findings, append the actual evidence,
 and rerun validation. Stage 3 remains out of scope.
+
+---
+
+## Stage 2 Iteration 6 - PostgreSQL Upsert Count Correction
+
+**Date:** 2026-09-05
+**Objective:** Resolve the sole database-enabled CI failure from the Stage 2 hardening commit.
+
+### Finding and correction
+
+- GitHub Actions run `33957041991` applied all migrations and passed the static checks, then
+  completed with `1 failed, 126 passed, 2 warnings`. The correction/rematerialization integration
+  test received `-39` instead of `0` from an unchanged 39-batch materialization.
+- Psycopg can expose `rowcount == -1` for this PostgreSQL upsert statement shape. Accumulating that
+  sentinel once per batch made the repository return a negative count even though persistence and
+  conflict filtering behaved correctly.
+- The upsert now returns each affected identity and counts the returned rows. This is authoritative
+  for both changed rows and no-op conflicts rejected by the `IS DISTINCT FROM` predicate.
+- The unit regression simulates `rowcount == -1`, verifies the exact aggregate, and verifies the
+  generated `RETURNING feature_values.instrument_id` clause.
+
+### Validation before database rerun
+
+- **PASS** - focused persistence tests: `6 passed`.
+- **PASS** - Ruff lint for the changed source and test: `All checks passed!`.
+- **PASS** - Ruff format check for the changed source and test: `2 files already formatted`.
+- **PASS** - repository Ruff lint and format checks: `All checks passed!`; `119 files already
+  formatted` (the ignored, access-restricted `tests_tmp/` directory emitted a scan warning).
+- **PASS** - strict mypy: `Success: no issues found in 61 source files`.
+- **PASS** - full local pytest: `112 passed, 15 skipped, 2 warnings in 7.87s`.
+- **PENDING** - exact-commit Antigravity review and database-enabled CI rerun.
+
+### Current Stage 2 status
+
+**INCOMPLETE pending the database-enabled rerun.** The first online run supplied actionable database
+evidence and the isolated result-count defect is corrected locally. Stage 3 remains out of scope.

@@ -55,14 +55,16 @@ def test_materialization_uses_one_transaction_for_bounded_statements() -> None:
 
     engine = MagicMock()
     connection = engine.begin.return_value.__enter__.return_value
-    connection.execute.return_value.rowcount = 1
-    FeatureRepository(engine).materialize(observations, batch_size=3)
+    connection.execute.return_value.rowcount = -1
+    connection.execute.return_value.all.return_value = [(1,)]
+    assert FeatureRepository(engine).materialize(observations, batch_size=3) == 7
     engine.begin.assert_called_once_with()
     assert connection.execute.call_count == 7
     for call in connection.execute.call_args_list:
         compiled = call.args[0].compile(dialect=postgresql.dialect())
         assert len(compiled.params) <= 3 * 8
         assert "IS DISTINCT FROM" in str(compiled)
+        assert "RETURNING feature_values.instrument_id" in str(compiled)
 
 
 def test_read_as_of_query_contains_both_temporal_guards() -> None:

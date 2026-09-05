@@ -91,7 +91,10 @@ class FeatureRepository:
                         ),
                     ),
                 )
-                affected += connection.execute(statement).rowcount
+                # Psycopg may expose ``rowcount == -1`` for this statement shape. RETURNING is
+                # authoritative and also distinguishes no-op conflicts filtered by the WHERE.
+                result = connection.execute(statement.returning(feature_values.c.instrument_id))
+                affected += len(result.all())
         return affected
 
     def read_as_of(
