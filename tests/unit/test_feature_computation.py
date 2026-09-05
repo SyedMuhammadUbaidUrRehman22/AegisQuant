@@ -64,6 +64,31 @@ def test_missing_input_is_not_filled() -> None:
     assert any(row.instrument_id == 2 and row.missing_reason == "missing_input" for row in rows)
 
 
+def test_missing_prior_price_is_not_misclassified_as_undefined() -> None:
+    bars = _bars()
+    missing_at = bars.loc[(bars["instrument_id"] == 1)].index[10]
+    bars.loc[missing_at, "adjusted_close"] = None
+
+    rows = compute_features(bars, as_of=datetime(2024, 3, 31, tzinfo=UTC))
+    affected = [
+        row
+        for row in rows
+        if row.instrument_id == 1
+        and row.bar_end_at == bars.loc[missing_at + 1, "bar_end_at"]
+        and row.feature_name in {"adjusted_simple_return_1d", "adjusted_log_return_1d"}
+    ]
+    rolling = [
+        row
+        for row in rows
+        if row.instrument_id == 1
+        and row.feature_name == "rolling_annualized_volatility_20d"
+        and row.bar_end_at == bars.loc[missing_at + 20, "bar_end_at"]
+    ]
+
+    assert affected and all(row.missing_reason == "missing_input" for row in affected)
+    assert rolling[0].missing_reason == "missing_input"
+
+
 def test_naive_as_of_and_duplicate_keys_are_rejected() -> None:
     bars = _bars(2)
     with pytest.raises(ValueError, match="timezone-aware"):

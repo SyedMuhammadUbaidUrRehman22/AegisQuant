@@ -18,7 +18,7 @@ from feature_engineering.features import (
     rolling_correlation,
     simple_return,
 )
-from feature_engineering.registry import FeatureRegistry
+from feature_engineering.registry import FeatureDefinition, FeatureRegistry
 
 MissingReason = Literal["available", "insufficient_history", "missing_input", "undefined"]
 
@@ -81,6 +81,19 @@ def _validate_bars(bars: pd.DataFrame) -> pd.DataFrame:
     return frame.sort_values(["instrument_id", "bar_end_at"], kind="stable").reset_index(drop=True)
 
 
+def _input_missing_mask(prices: pd.Series, definition: FeatureDefinition) -> pd.Series:
+    """Identify outputs made unavailable by a required canonical price."""
+
+    kind = definition.kind
+    if kind in {"simple_return", "log_return"}:
+        required_prices = 2
+    elif kind in {"momentum", "rolling_annualized_volatility"}:
+        required_prices = definition.lookback_observations + 1
+    else:
+        return pd.Series(False, index=prices.index, dtype="bool")
+    return prices.isna().rolling(required_prices, min_periods=1).max().astype("bool")
+
+
 def compute_features(
     bars: pd.DataFrame, *, as_of: datetime, registry: FeatureRegistry | None = None
 ) -> tuple[FeatureObservation, ...]:
@@ -138,9 +151,8 @@ def compute_features(
         for instrument_id in sorted(frame["instrument_id"].unique()):
             group = frame.loc[frame["instrument_id"] == instrument_id]
             values = computed[(int(instrument_id), definition.name)]
-            input_missing = (
-                group.set_index("bar_end_at")[list(definition.input_fields)].isna().any(axis=1)
-            )
+            prices = group.set_index("bar_end_at")["adjusted_close"].astype("float64")
+            input_missing = _input_missing_mask(prices, definition)
             for position, timestamp in enumerate(values.index):
                 raw = values.loc[timestamp]
                 if pd.notna(raw) and np.isfinite(float(raw)):

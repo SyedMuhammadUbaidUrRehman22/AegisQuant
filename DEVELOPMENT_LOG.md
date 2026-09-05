@@ -1589,3 +1589,56 @@ changes. The untracked research library was preserved without modification.
 - **PASS** - `git diff --check` reports no whitespace errors.
 - **NOT RUN / ENVIRONMENT LIMITED** - online TimescaleDB tests. The known external Docker Desktop
   limitation was not retried because there is no new evidence of an environment change.
+
+---
+
+## Stage 2 Iteration 4 - Completion Audit and Missing-Input Provenance Fix
+
+**Date:** 2026-09-05
+**Objective:** Audit the implemented Stage 2 contract against Blueprint v1.1 and correct the
+identified missing-data classification defect without broadening the feature set or entering Stage 3.
+
+### Audit result and implementation change
+
+The audit confirms that the five deliberate features use adjusted close, deterministic definitions
+and SHA-256 identities, current completed-bar inclusion, explicit timezone-aware `--as-of` cutoffs,
+no filling, and versioned/idempotent materialization. Daily rolling annualized volatility and
+correlation retain their research-correct terminology: they are sample statistics of daily returns,
+not intraday realized-volatility or realized-covariance estimators. No macro inputs, normalizers,
+future labels, model outputs, or Stage 3 functionality are present.
+
+The audit found that a null *prior* adjusted close could cause a return or rolling feature to be
+null but marked `undefined`, because only the current raw input had been inspected. Added a
+vectorized required-price missing mask: two prices for simple/log returns, and lookback plus one
+prices for momentum and rolling annualized volatility. Such outputs are now explicitly
+`missing_input`; mathematical indeterminacy remains reserved for cases such as a constant
+correlation window. A unit regression covers the immediately subsequent returns and an affected
+rolling-volatility output.
+
+### Files changed
+
+- `feature_engineering/computation.py`
+- `tests/unit/test_feature_computation.py`
+- `DEVELOPMENT_LOG.md`
+
+### Validation
+
+- **PASS** - `.venv\\Scripts\\python.exe -m ruff check .`: `All checks passed!`.
+- **PASS** - `.venv\\Scripts\\python.exe -m ruff format --check .`: `114 files already formatted`.
+- **PASS** - `.venv\\Scripts\\python.exe -m mypy`: `Success: no issues found in 60 source files`.
+- **PASS** - `.venv\\Scripts\\python.exe -m pytest`: `78 passed, 8 skipped, 2 warnings in 11.14s`.
+  The skips are database-marked tests because no database URL is configured.
+- **PASS** - Alembic reports one linear head: `20260904_03`.
+- **PASS** - offline PostgreSQL migration SQL rendered the complete `feature_values` table,
+  composite identity, point-in-time/value constraints, foreign key, and indexes.
+- **PASS** - `git diff --check` found no whitespace errors before this log append.
+- **NOT RUN / ENVIRONMENT LIMITED** - online TimescaleDB migration and Stage 2 integration test.
+  Docker was not retried because the documented host socket failure has no new evidence of change.
+
+### Stage 2 completion status
+
+**INCOMPLETE.** The source-level audit and deterministic validation are complete, but online
+PostgreSQL evidence remains unavailable and the required independent Antigravity review has not yet
+been supplied. The next action is to give Antigravity the resulting commit, this entry, and the
+expected versioned point-in-time/missing-data behavior for independent review; then run the online
+database matrix when the Docker or CI environment is available. Do not begin Stage 3.
