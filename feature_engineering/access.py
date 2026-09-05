@@ -17,7 +17,7 @@ class CanonicalFeatureInput:
     def bars_as_of(self, as_of: datetime) -> pd.DataFrame:
         """Return completed canonical daily bars only; never fetch or fill data."""
 
-        if as_of.tzinfo is None:
+        if pd.isna(as_of) or as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
         statement = (
             select(

@@ -27,7 +27,10 @@ def test_definition_hash_is_deterministic_and_tracks_semantics() -> None:
     definition = DEFAULT_FEATURES[0]
 
     assert definition.definition_hash == definition.definition_hash
-    assert replace(definition, version=2).definition_hash != definition.definition_hash
+    assert (
+        replace(definition, version=definition.version + 1).definition_hash
+        != definition.definition_hash
+    )
     assert replace(definition, description="changed").definition_hash != definition.definition_hash
 
 
@@ -36,3 +39,16 @@ def test_registry_rejects_duplicate_names_and_unknown_lookup() -> None:
         FeatureRegistry((DEFAULT_FEATURES[0], DEFAULT_FEATURES[0]))
     with pytest.raises(KeyError, match="unknown feature"):
         FeatureRegistry().get("absent")
+
+
+def test_dependent_hash_tracks_resolved_dependency_identity() -> None:
+    simple = DEFAULT_FEATURES[0]
+    correlation = DEFAULT_FEATURES[4]
+    original = FeatureRegistry((simple, correlation)).get(correlation.name)
+    revised_simple = replace(simple, version=simple.version + 1, description="revised return")
+    revised = FeatureRegistry((revised_simple, correlation)).get(correlation.name)
+
+    assert original.dependency_hashes == (
+        FeatureRegistry((simple,)).get(simple.name).definition_hash,
+    )
+    assert revised.definition_hash != original.definition_hash

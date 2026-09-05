@@ -1642,3 +1642,78 @@ PostgreSQL evidence remains unavailable and the required independent Antigravity
 been supplied. The next action is to give Antigravity the resulting commit, this entry, and the
 expected versioned point-in-time/missing-data behavior for independent review; then run the online
 database matrix when the Docker or CI environment is available. Do not begin Stage 3.
+
+---
+
+## Stage 2 Iteration 5 - Vectorized Completion Hardening and Import Environment
+
+**Date:** 2026-09-05
+**Objective:** Close the remaining Blueprint v1.1 Stage 2 source, adversarial-test, persistence,
+quality-report, performance, and developer-environment gaps without entering Stage 3.
+
+### Research-sensitive decisions and audit corrections
+
+- Retained daily rolling annualized volatility and rolling correlation as sample statistics of
+  daily returns. No intraday realized-volatility/covariance terminology or implementation was added.
+- Required correlation pairs to share both return endpoints. A multi-session return after a missing
+  row is no longer paired with a one-session benchmark return.
+- Preserved observed-session windows, absent exchange-closure rows, endpoint-only momentum, and
+  explicit `insufficient_history`, `missing_input`, and `undefined` states.
+- Clarified that historical `--as-of` replay uses the latest canonical snapshot. It is not a claim
+  of bitemporal vendor-vintage availability, because Stage 1 does not store that contract.
+- Moved all active definitions to version 2. Registry-resolved dependent hashes now include exact
+  dependency hashes transitively, so changing a return identity changes its consumers' identities.
+
+### Implementation changes
+
+- Reworked calculations into observed-row asset panels. Numerical formulas run across asset
+  columns; only output-object serialization iterates rows. Sparse assets emit only canonical rows.
+- Filtered the information set before validating prices/volume, made timezone and identity checks
+  strict, avoided log-return ratio overflow, and made constant correlation numerically explicit.
+- Strengthened registry validation for implemented kinds, daily adjusted-close inputs, windows,
+  minimum observations, annualization, future-target semantics, and dependency identities.
+- Added read-only `python -m feature_engineering --as-of <timestamp> --validate` replay/coverage JSON
+  with a failing exit code for empty, stale, missing, extra, or missing-input feature sets.
+- Bounded PostgreSQL batches to 8,000 rows, rejected duplicate identities before SQL, and added
+  revision `20260905_04` for nonempty names and finite stored values.
+- Added adversarial temporal, missing-data, exchange-calendar, sparse-panel, numerical, registry,
+  validation, CLI-disposal, SQL batching, migration, correction, rollback, and version-coexistence
+  coverage. Database cases remain marked and do not masquerade as local passes.
+- Added tracked Pyright configuration and troubleshooting so analysis resolves the repository
+  `.venv`. It imports pinned `yfinance==1.7.0`; no pin or provider behavior changed.
+- Added `docs/stage_2_completion_audit.md` with the blueprint mapping and review handoff.
+
+### Files changed
+
+- `README.md`, `docs/stage_2_completion_audit.md`, `feature_engineering/README.md`
+- `feature_engineering/{access.py,cli.py,computation.py,persistence.py,registry.py,service.py,tables.py,validation.py}`
+- `feature_engineering/features/price.py`
+- `infra/migrations/versions/20260905_04_feature_value_integrity.py`
+- `pyrightconfig.json`
+- `tests/factories.py`, `tests/integration/test_stage2_features.py`
+- `tests/unit/test_feature_{adversarial,cli,formulas,migration,persistence,registry,validation}.py`
+
+### Validation and review
+
+- **PASS** - Ruff lint: `All checks passed!`.
+- **PASS** - Ruff format check: `119 files already formatted`.
+- **PASS** - strict mypy: `Success: no issues found in 61 source files`.
+- **PASS** - full local pytest: `112 passed, 15 skipped, 2 warnings in 6.24s`. All skips are
+  database-marked because no test database URL is configured.
+- **PASS** - `pip check`: `No broken requirements found`.
+- **PASS** - repository interpreter import: `yfinance=1.7.0`, adapter metadata `1.7.0`.
+- **PASS** - Alembic has one head, `20260905_04`; offline tests render upgrade and downgrade SQL.
+- **PASS** - synthetic 20-asset x 4,500-row computation produced 450,000 observations in 6.397s.
+- **ANTIGRAVITY PRE-COMMIT REVIEW, RESOLVED** - found that dependent hashes initially contained only
+  dependency names; transitive resolved hashes and regression coverage were added. It also found
+  this development-log entry absent before handoff; this entry resolves that finding.
+- **NOT RUN / ENVIRONMENT LIMITED** - 15 online PostgreSQL/TimescaleDB tests, actual version 2
+  full-history materialization/coverage, and a live editor cache refresh. No Docker process exists
+  and the documented host socket condition has no new recovery evidence.
+
+### Current Stage 2 status
+
+**INCOMPLETE pending online evidence and exact-commit Antigravity confirmation.** Source and local
+deterministic checks pass. The next action is to commit this increment, independently review that
+exact commit, run the database-enabled CI matrix, disposition findings, append the actual evidence,
+and rerun validation. Stage 3 remains out of scope.

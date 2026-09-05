@@ -180,11 +180,17 @@ rolling correlation to SPY. Every run requires an explicit, timezone-aware cutof
 
 ```bash
 python -m feature_engineering --as-of 2026-09-04T21:00:00Z
+python -m feature_engineering --as-of 2026-09-04T21:00:00Z --validate
 ```
 
 The command applies both bar-time and information-time cutoffs, records warm-up or undefined values
 explicitly, and writes in bounded transactional batches. Formulas and missing-data policies are in
 [`feature_engineering/README.md`](feature_engineering/README.md).
+
+The active definitions are version 2. Apply migration `20260905_04` and rematerialize to populate
+those identities; version 1 rows are retained. `--validate` performs a read-only coverage/replay
+audit and returns a nonzero exit code for discrepancies. See the
+[Stage 2 completion audit](docs/stage_2_completion_audit.md) for the remaining validation gates.
 
 ## Quality checks
 
@@ -219,5 +225,13 @@ be imported by production code.
   it explicitly inside PostgreSQL rather than deleting the volume.
 - Python installation fails: confirm `python --version` reports 3.12.x and that the virtual
   environment is active.
+- An editor reports that `yfinance` cannot be imported: select the repository's
+  `.venv/Scripts/python.exe` on Windows (`.venv/bin/python` on Linux/macOS). The repository's
+  `pyrightconfig.json` points Pyright at this environment. In VS Code or Antigravity, use
+  **Python: Select Interpreter** if an interpreter was already selected for the workspace;
+  an existing selection can override the default. Open a fresh terminal after selecting it.
+  Verify on Windows with `.\.venv\Scripts\python.exe -c "import yfinance; print(yfinance.__version__)"`.
+  If absent from that interpreter, install with
+  `.\.venv\Scripts\python.exe -m pip install --constraint constraints.lock -e ".[dev]"`.
 - Configuration validation fails: inspect the named YAML/environment value; invalid or unknown
   configuration fails loudly by design.

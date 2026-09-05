@@ -6,7 +6,28 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from data_pipeline.schema import AssetClass, CanonicalBar, Instrument, SourceBatch
+
+
+def feature_bars(days: int = 65) -> pd.DataFrame:
+    """Build weekday-only toy inputs; exchange-calendar behavior has separate coverage."""
+
+    sessions = pd.bdate_range("2024-01-02", periods=days, tz="UTC") + pd.Timedelta(hours=21)
+    return pd.DataFrame(
+        [
+            {
+                "instrument_id": instrument_id,
+                "canonical_symbol": symbol,
+                "bar_end_at": timestamp,
+                "adjusted_close": (100.0 + offset) * multiplier,
+                "volume": 1_000_000,
+            }
+            for instrument_id, symbol, multiplier in ((1, "SPY", 1.0), (2, "QQQ", 1.5))
+            for offset, timestamp in enumerate(sessions)
+        ]
+    )
 
 
 def instrument(*, instrument_id: int = 1, symbol: str = "SPY") -> Instrument:

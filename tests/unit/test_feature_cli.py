@@ -47,3 +47,33 @@ class _DatabaseStub:
 
 class _SettingsStub:
     database = _DatabaseStub()
+
+
+def test_cli_disposes_engine_on_materialization_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+
+    engine = Mock()
+    monkeypatch.setattr(cli, "load_settings", lambda: _SettingsStub())
+    monkeypatch.setattr(cli, "create_engine", lambda *args, **kwargs: engine)
+    monkeypatch.setattr(cli, "materialize_features", Mock(side_effect=RuntimeError("write failed")))
+    with pytest.raises(RuntimeError, match="write failed"):
+        cli.main(["--as-of", "2026-09-04T21:00:00Z"])
+    engine.dispose.assert_called_once_with()
+
+
+def test_cli_validation_is_readonly_and_returns_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+
+    from feature_engineering.validation import validate_materialization
+
+    engine = Mock()
+    writer = Mock()
+    monkeypatch.setattr(cli, "load_settings", lambda: _SettingsStub())
+    monkeypatch.setattr(cli, "create_engine", lambda *args, **kwargs: engine)
+    monkeypatch.setattr(cli, "materialize_features", writer)
+    monkeypatch.setattr(
+        cli, "validate_features", lambda *args, **kwargs: validate_materialization((), ())
+    )
+    assert cli.main(["--as-of", "2026-09-04T21:00:00Z", "--validate"]) == 1
+    writer.assert_not_called()
+    engine.dispose.assert_called_once_with()

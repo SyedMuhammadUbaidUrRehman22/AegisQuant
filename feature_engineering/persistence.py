@@ -13,6 +13,7 @@ from feature_engineering.registry import FeatureRegistry
 from feature_engineering.tables import feature_values
 
 DEFAULT_WRITE_BATCH_SIZE = 1_000
+MAX_WRITE_BATCH_SIZE = 8_000  # Eight bound fields per row; stay below 65,535 PostgreSQL parameters.
 
 
 def _batches[T](values: Sequence[T], size: int) -> tuple[Sequence[T], ...]:
@@ -33,8 +34,22 @@ class FeatureRepository:
     ) -> int:
         """Upsert one deterministic value per full feature identity."""
 
+        if batch_size < 1 or batch_size > MAX_WRITE_BATCH_SIZE:
+            raise ValueError(f"batch size must be positive and at most {MAX_WRITE_BATCH_SIZE}")
         if not observations:
             return 0
+        identities = [
+            (
+                row.instrument_id,
+                row.feature_name,
+                row.feature_version,
+                row.definition_hash,
+                row.bar_end_at,
+            )
+            for row in observations
+        ]
+        if len(set(identities)) != len(identities):
+            raise ValueError("duplicate feature identities in one materialization")
         rows = tuple(
             {
                 "instrument_id": row.instrument_id,
@@ -84,7 +99,7 @@ class FeatureRepository:
     ) -> tuple[RowMapping, ...]:
         """Read only current registered definitions available by the requested instant."""
 
-        if as_of.tzinfo is None:
+        if as_of != as_of or as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
         definitions = (registry or FeatureRegistry()).all()
         identities = [(item.name, item.version, item.definition_hash) for item in definitions]

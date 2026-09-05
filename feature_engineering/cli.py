@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import datetime
 
 from sqlalchemy import create_engine
 
 from config import load_settings
-from feature_engineering.service import materialize_features
+from feature_engineering.service import materialize_features, validate_features
 
 
 def _aware_datetime(value: str) -> datetime:
@@ -31,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
         type=_aware_datetime,
         help="inclusive point-in-time cutoff with UTC offset, for example 2026-09-04T21:00:00Z",
     )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="read-only coverage and point-in-time replay audit; exit 1 on discrepancies",
+    )
     return parser
 
 
@@ -39,6 +46,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = load_settings()
     engine = create_engine(settings.database.sqlalchemy_url(), pool_pre_ping=True)
     try:
+        if arguments.validate:
+            report = validate_features(engine, as_of=arguments.as_of)
+            print(json.dumps(asdict(report), sort_keys=True))
+            return 0 if report.passed else 1
         observations = materialize_features(engine, as_of=arguments.as_of)
     finally:
         engine.dispose()

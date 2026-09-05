@@ -41,6 +41,11 @@ feature_values = Table(
         onupdate=func.now(),
     ),
     CheckConstraint("feature_version > 0", name="version_positive"),
+    CheckConstraint("length(feature_name) > 0", name="name_nonempty"),
+    CheckConstraint(
+        "value IS NULL OR (value > '-Infinity'::float8 AND value < 'Infinity'::float8)",
+        name="value_finite",
+    ),
     CheckConstraint("definition_hash ~ '^[0-9a-f]{64}$'", name="definition_hash_format"),
     CheckConstraint("feature_as_of <= bar_end_at", name="point_in_time"),
     CheckConstraint(

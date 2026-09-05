@@ -40,6 +40,28 @@ def test_constant_windows_have_zero_volatility_and_undefined_correlation() -> No
     assert math.isnan(rolling_correlation(prices, prices, window=2).iloc[2])
 
 
+def test_correlation_matches_hand_calculated_nontrivial_covariance() -> None:
+    left = pd.Series([1.0, 2.0, 3.0])
+    right = pd.Series([1.0, 3.0, 2.0])
+    # Deviations (-1, 0, 1) and (-1, 1, 0): covariance 1/2, both variances 1.
+    assert rolling_correlation(left, right, window=3).iloc[-1] == pytest.approx(0.5)
+
+
+def test_log_return_avoids_intermediate_ratio_overflow() -> None:
+    prices = pd.Series([1e-300, 1e300])
+    assert log_return(prices).iloc[-1] == pytest.approx(600 * math.log(10))
+
+
+def test_formula_panel_matches_each_independent_series() -> None:
+    prices = pd.DataFrame({"left": [100.0, 110.0, 99.0], "right": [20.0, 21.0, 22.0]})
+    actual = rolling_annualized_volatility(prices, window=2, annualization_factor=12)
+    for column in prices:
+        pd.testing.assert_series_equal(
+            actual[column],
+            rolling_annualized_volatility(prices[column], window=2, annualization_factor=12),
+        )
+
+
 @pytest.mark.parametrize(
     ("operation", "message"),
     [
