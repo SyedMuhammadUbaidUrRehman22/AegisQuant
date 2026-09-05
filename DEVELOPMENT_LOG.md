@@ -1749,7 +1749,19 @@ and rerun validation. Stage 3 remains out of scope.
 - **PASS** - full local pytest: `112 passed, 15 skipped, 2 warnings in 7.87s`.
 - **PENDING** - exact-commit Antigravity review and database-enabled CI rerun.
 
+### Final online validation and review
+
+- **PASS** - independent Antigravity review of exact commit `d3c0454`; no blocking findings. The
+  reviewer reran six focused persistence tests, Ruff, and strict mypy.
+- **PASS** - GitHub Actions run `33957295719` against TimescaleDB 2.18.0 / PostgreSQL 17. Ruff,
+  format, strict mypy, the empty-history Alembic upgrade through `20260905_04`, all `127` tests,
+  Compose validation, and the health-service image build passed. Pytest completed in 5.88 seconds
+  with two dependency deprecation warnings.
+
 ### Current Stage 2 status
 
-**INCOMPLETE pending the database-enabled rerun.** The first online run supplied actionable database
-evidence and the isolated result-count defect is corrected locally. Stage 3 remains out of scope.
+**IMPLEMENTATION COMPLETE; PRODUCTION-DATA EXIT EVIDENCE BLOCKED.** All authored Stage 2 behavior,
+including the online PostgreSQL matrix and independent review, passes. The blueprint's actual
+full-universe/full-history coverage criterion cannot be claimed until Stage 1 supplies a complete
+canonical production dataset on which to run `python -m feature_engineering --as-of <timestamp>
+--validate`. Stage 3 remains out of scope.

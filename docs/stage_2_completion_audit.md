@@ -2,9 +2,10 @@
 
 Date: 2026-09-05. Scope: Stage 2 feature engineering and the reported yfinance import problem.
 
-Status: **INCOMPLETE / blocked from exit declaration**. The implemented source requirements have
-local evidence below. Database execution, actual full-history coverage, and the required independent
-Antigravity review have not been established for this revision. Stage 3 is not authorized here.
+Status: **BLOCKED only at production-data exit evidence**. The Stage 2 implementation, online
+database behavior, and required independent Antigravity review pass. Actual full-universe/history
+coverage cannot be established until the upstream Stage 1 canonical database contains that data.
+Stage 3 is not authorized here.
 
 ## Requirement mapping
 
@@ -21,11 +22,11 @@ Antigravity review have not been established for this revision. Stage 3 is not a
 | §3 exit, §16 items 3/8/14 temporal correctness | Past cutoff equals a full-run prefix; future invalid prices cannot alter history; shuffled inputs and equivalent offsets reproduce output | Local pass |
 | §16 items 4/11/12 timezones, closures, listings/gaps | Canonical timezone checks, July 4 closure/early-close fixture, sparse-history windows, late benchmark warmup, mismatched-period correlation tests | Local pass |
 | §5.2 missing-state consistency; §16 item 5 quality visibility | Required-input masks, warmup/undefined separation, JSON replay audit with per-instrument/feature reason counts | Local pass |
-| §3 versioned feature store; §12 migrations | Full identity upsert, preserved created_at, conditional updated_at, parameter-bounded transactions; revision 20260905_04 | Offline/static pass; online pending |
-| §3 persisted point-in-time replay; §11 Stage 1 integration | Tests cover future canonical mutation, exact historical reads, correction/rematerialization, timestamp stability and rollback | Authored; database execution pending |
-| §3 complete feature table; §17 weeks 5–6 full universe/history | Read-only --validate checks all current canonical rows against storage; does not prove Stage 1 loaded all expected bars | Real-data coverage pending |
+| §3 versioned feature store; §12 migrations | Full identity upsert, preserved created_at, conditional updated_at, parameter-bounded transactions; revision 20260905_04 | Online pass |
+| §3 persisted point-in-time replay; §11 Stage 1 integration | Tests cover future canonical mutation, exact historical reads, correction/rematerialization, timestamp stability and rollback | Online pass |
+| §3 complete feature table; §17 weeks 5–6 full universe/history | Read-only --validate checks all current canonical rows against storage; does not prove Stage 1 loaded all expected bars | Blocked by unavailable production Stage 1 dataset |
 | §18 research corrections | Daily sample estimators retain correct terminology; no models, labels, global scaling, mechanical embargo, or unsupported research claims added | Source compliant |
-| User-required independent Antigravity review | Pre-commit review found missing transitive dependency hashing and the absent log entry; both were resolved. Exact-commit review follows the handoff commit. | In progress |
+| User-required independent Antigravity review | Pre-commit findings were resolved; exact commits `5f9e14f` and `d3c0454` received independent PASS reviews with no remaining findings. | Pass |
 
 ## Corrections beyond the earlier audit
 
@@ -63,11 +64,12 @@ a discrepancy. The command reports failure rather than claiming reproducibility 
 
 ## Validation evidence
 
-Final commands and exact suite totals are recorded in DEVELOPMENT_LOG.md, Stage 2 Iteration 5.
-Offline tests render both upgrade and downgrade of the new revision and assert constraint names.
-The database tests are explicitly marked and remain skipped without a database URL. No new CI run
-has been observed, and no local Docker recovery is claimed. Docker was not restarted because the
-known host socket failure had no new recovery evidence; a process check found no Docker process.
+Final commands and exact suite totals are recorded in DEVELOPMENT_LOG.md, Stage 2 Iterations 5–6.
+GitHub Actions run `33957295719` passed against TimescaleDB 2.18.0 / PostgreSQL 17: Ruff and format,
+strict mypy, an empty-history migration through `20260905_04`, all `127` tests, Compose validation,
+and the health-service image build passed. This includes all 15 database-marked tests. The preceding
+run `33957041991` exposed the psycopg `rowcount == -1` issue; commit `d3c0454` replaced that count
+with authoritative returned-row counting and the rerun passed.
 
 A synthetic performance check used 20 assets × 4,500 observations (90,000 canonical-shaped rows)
 and produced exactly 450,000 feature observations in **6.397 seconds** on this machine. It measures
@@ -87,20 +89,11 @@ If an interpreter was already selected, use **Python: Select Interpreter** once 
 changing the default does not override a cached selection. This behavior is documented in the
 [VS Code Python settings reference](https://code.visualstudio.com/docs/python/settings-reference).
 
-## Antigravity handoff
+## Antigravity review record
 
-Review the commit that adds this audit (`git log -1 --format=%H`) and DEVELOPMENT_LOG.md,
-**Stage 2 Iteration 5 — Vectorized completion hardening and import environment**.
-
-Expected behavior: only completed canonical bars feed the five version 2 features; formulas use
-observed rows and complete required inputs; paired returns share both endpoints; missing values
-retain their reason; exact registry identities coexist; unchanged rematerialization retains both
-timestamps; later-batch failure rolls back the entire transaction; --validate is read-only and
-detects missing/extra/stale persisted values.
-
-Challenge formulas, panel packing and sparse alignment, availability assumptions, missing-state
-precedence, definition hashes and dependency semantics, SQL conflict updates and migration
-constraints, full-universe coverage, and the distinction between event-time and vendor-vintage
-replay. Run the database tests only against a disposable TimescaleDB test database: their fixture
-downgrades/recreates the schema and truncates tables. Record actual online results and findings,
-resolve valid findings, then rerun the suite before declaring Stage 2 complete.
+The pre-commit review found missing transitive dependency hashes and the absent Iteration 5 log
+entry; both were corrected before `5f9e14f`. The exact-commit review of `5f9e14f` passed the source,
+formula, leakage, registry, persistence, CLI, migration, and documentation audit. After the first
+online run revealed unreliable psycopg row counts, the exact-commit review of `d3c0454` independently
+confirmed the `RETURNING` semantics, batch bound, regression, and log account. It ran six focused
+persistence tests plus Ruff and strict mypy and reported no blocking findings.
